@@ -70,7 +70,7 @@ def run_pipeline(
     n_prob = int(labeled["is_problem"].sum())
     step("classify", "done", f"проблемных обращений: {n_prob}")
 
-    step("aggregate", "running", "рейтинг = проблемы × тяжесть")
+    step("aggregate", "running", "Health Score: веса 0/1/5/20/100, нормировка log(N)")
     top_all, top10, top3 = build_municipality_rankings(labeled, cfg)
     top3_names = ", ".join(top3["муниципалитет"].astype(str).tolist()) if len(top3) else "—"
     step("aggregate", "done", f"всего {len(top_all)} МО; Top-3: {top3_names}")
