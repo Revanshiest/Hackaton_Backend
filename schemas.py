@@ -6,6 +6,7 @@ from datetime import datetime
 
 class DatasetUploadResponse(BaseModel):
     """Схема ответа при успешной загрузке датасета"""
+    task_id: str = Field(..., description="ID фоновой задачи обработки", example="a1b2c3d4")
     filename: str = Field(..., description="Имя загруженного файла", example="dataset_2023.xlsx")
     message: str = Field(..., description="Статус обработки", example="Датасет успешно загружен и обработан")
     rows_processed: int = Field(..., description="Количество обработанных строк", example=15000)
@@ -88,3 +89,33 @@ class GenerateReportResponse(BaseModel):
     task_id: str = Field(..., description="ID фоновой задачи генерации отчёта", example="task-12345-abcde")
     status: str = Field(..., description="Текущий статус", example="processing")
     message: str = Field(..., description="Сообщение для пользователя", example="Отчёт генерируется, пожалуйста, подождите.")
+
+
+# --- 5. Фоновые задачи (пайплайн) ---
+
+class PipelineStep(BaseModel):
+    """Шаг обработки датасета"""
+    id: str = Field(..., description="Идентификатор шага", example="classify")
+    label: str = Field(..., description="Название шага", example="Классификация ONNX")
+    status: str = Field(..., description="Статус: pending, running, done, error", example="running")
+    detail: str = Field("", description="Детали выполнения")
+
+
+class JobStatus(BaseModel):
+    """Статус фоновой задачи обработки датасета"""
+    task_id: str = Field(..., description="ID задачи", example="a1b2c3d4")
+    status: str = Field(..., description="queued, running, completed, failed", example="running")
+    message: str | None = Field(None, description="Текущее сообщение")
+    created_at: str | None = Field(None, description="Время создания (ISO)")
+    filename: str | None = Field(None, description="Имя загруженного файла")
+    rows_processed: int | None = Field(None, description="Обработано строк")
+    stats: dict | None = Field(None, description="Статистика после завершения")
+    steps: list[PipelineStep] | None = Field(None, description="Шаги пайплайна")
+
+
+class PipelineOptions(BaseModel):
+    """Параметры запуска пайплайна"""
+    skip_summary: bool = Field(False, description="Пропустить LLM-справки")
+    batch_size: int = Field(16, description="Размер батча ONNX")
+    nrows: int | None = Field(None, description="Ограничить число строк (для теста)")
+    model: str | None = Field(None, description="Модель Ollama (по умолчанию gemma4:e2b)")
