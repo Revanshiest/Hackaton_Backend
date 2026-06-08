@@ -1,16 +1,28 @@
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+
 services:
   ollama:
     image: ollama/ollama:latest
-    container_name: hackaton-ollama
+    container_name: zeroproblems-ollama
+    <<: *gpu
     ports:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
     restart: unless-stopped
 
   ollama-pull:
     image: ollama/ollama:latest
-    container_name: hackaton-ollama-pull
+    container_name: zeroproblems-ollama-pull
     depends_on:
       - ollama
     environment:
@@ -22,7 +34,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: hackaton-api
+    container_name: zeroproblems-api
+    <<: *gpu
     depends_on:
       ollama:
         condition: service_started
@@ -37,6 +50,21 @@ services:
       - PYTHONPATH=/app
       - OLLAMA_HOST=http://ollama:11434
       - OLLAMA_MODEL=gemma4:e2b
+      - NVIDIA_VISIBLE_DEVICES=all
+      - ONNX_DEVICE=cuda
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
+    container_name: zeroproblems-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
     restart: unless-stopped
 
 volumes:

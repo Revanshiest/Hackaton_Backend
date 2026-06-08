@@ -63,22 +63,34 @@ def _pack_result(labels: np.ndarray, confidences: np.ndarray) -> PredictionResul
     )
 
 
+def resolve_onnx_providers(device: str | None = None) -> list[str]:
+    import os
+
+    import onnxruntime as ort
+
+    available = ort.get_available_providers()
+    prefer_cpu = (device or os.environ.get("ONNX_DEVICE", "")).lower() == "cpu"
+    if not prefer_cpu and "CUDAExecutionProvider" in available:
+        return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    return ["CPUExecutionProvider"]
+
+
 def predict_onnx(texts: list[str], resolved_dir: Path, batch_size: int, device: str | None) -> PredictionResult:
     import onnxruntime as ort
     from transformers import AutoTokenizer
 
     model_dir_str = str(resolved_dir)
     tokenizer = AutoTokenizer.from_pretrained(model_dir_str)
-    
-    # Пытаемся использовать CUDA для ONNX
-    providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
-    
-    # ONNX Runtime сессия
+
+    providers = resolve_onnx_providers(device)
+
     onnx_model_path = str(resolved_dir / "model.onnx")
     if not Path(onnx_model_path).exists():
         raise FileNotFoundError(f"Файл {onnx_model_path} не найден! Сначала сконвертируйте модель с помощью convert_to_onnx.py.")
-        
+
     session = ort.InferenceSession(onnx_model_path, providers=providers)
+    active = session.get_providers()
+    print(f"ONNX inference: requested={providers} active={active}", flush=True)
 
     max_length = 512
     label_map_path = resolved_dir / "label_map.json"

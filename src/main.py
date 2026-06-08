@@ -33,7 +33,13 @@ async def lifespan(app: FastAPI):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     JOBS_DIR.mkdir(parents=True, exist_ok=True)
     jobs.load_jobs_from_disk()
-    print("ZeroProblems: бэкенд запущен, ONNX + пайплайн готовы.")
+    try:
+        import onnxruntime as ort
+
+        print(f"ZeroProblems: ONNX providers = {ort.get_available_providers()}", flush=True)
+    except Exception as exc:
+        print(f"ZeroProblems: ONNX check failed: {exc}", flush=True)
+    print("ZeroProblems: бэкенд запущен, ONNX + пайплайн готовы.", flush=True)
     yield
     print("Выключение бэкенда...")
 
@@ -78,8 +84,8 @@ def _require_completed(task_id: str) -> Path:
         return jobs.require_completed(task_id)
     except KeyError:
         raise HTTPException(404, "Задача не найдена") from None
-    except RuntimeError as exc:
-        raise HTTPException(409, f"Статус: {exc}") from exc
+    except jobs.JobNotReadyError as exc:
+        raise HTTPException(409, f"Статус: {exc.status}") from exc
 
 
 @api_router.get("/health", summary="Проверка состояния API")
@@ -174,16 +180,23 @@ async def download_excel(task_id: str):
     summary="Данные дашборда по последней или указанной задаче",
 )
 async def get_dashboard(task_id: str | None = None):
-    if task_id:
-        report = jobs.get_report(task_id)
-    else:
-        completed = [
-            j for j in jobs.list_jobs() if j.get("status") == "completed"
-        ]
-        if not completed:
-            raise HTTPException(404, "Нет завершённых задач. Загрузите датасет.")
-        completed.sort(key=lambda j: j.get("created_at") or "", reverse=True)
-        report = jobs.get_report(completed[0]["task_id"])
+    try:
+        if task_id:
+            report = jobs.get_report(task_id)
+        else:
+            completed = [
+                j for j in jobs.list_jobs() if j.get("status") == "completed"
+            ]
+            if not completed:
+                raise HTTPException(404, "Нет завершённых задач. Загрузите датасет.")
+            completed.sort(key=lambda j: j.get("created_at") or "", reverse=True)
+            report = jobs.get_report(completed[0]["task_id"])
+    except KeyError:
+        raise HTTPException(404, "Задача не найдена") from None
+    except jobs.JobNotReadyError as exc:
+        raise HTTPException(409, f"Задача ещё не готова: {exc.status}") from exc
+    except FileNotFoundError:
+        raise HTTPException(404, "Отчёт ещё не готов") from None
     return build_dashboard(report)
 
 
@@ -200,7 +213,15 @@ async def get_district_report(district_id: int, task_id: str | None = None):
         completed.sort(key=lambda j: j.get("created_at") or "", reverse=True)
         task_id = completed[0]["task_id"]
 
-    report = jobs.get_report(task_id)
+    try:
+        report = jobs.get_report(task_id)
+    except KeyError:
+        raise HTTPException(404, "Задача не найдена") from None
+    except jobs.JobNotReadyError as exc:
+        raise HTTPException(409, f"Задача ещё не готова: {exc.status}") from exc
+    except FileNotFoundError:
+        raise HTTPException(404, "Отчёт ещё не готов") from None
+
     custom_summary = jobs.get_district_summary(task_id, district_id)
     result = build_district_report(report, district_id, analytical_summary=custom_summary)
     if result is None:
@@ -230,8 +251,8 @@ async def generate_district_report(
         jobs.require_completed(task_id)
     except KeyError:
         raise HTTPException(404, "Задача не найдена") from None
-    except RuntimeError as exc:
-        raise HTTPException(409, f"Статус: {exc}") from exc
+    except jobs.JobNotReadyError as exc:
+        raise HTTPException(409, f"Статус: {exc.status}") from exc
 
     gen_task_id = f"report-{uuid.uuid4().hex[:8]}"
     _district_tasks[gen_task_id] = {

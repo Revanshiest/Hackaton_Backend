@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.config.llm import OLLAMA_MODEL
 from app.config.paths import JOBS_DIR
 from app.config.settings import PipelineSettings
 from app.pipeline import run_pipeline
@@ -16,6 +17,8 @@ from app.summary import build_district_report_summary
 from schemas import PipelineOptions
 
 _jobs: dict[str, dict] = {}
+
+_STALE_JOB_MESSAGE = "Прервано перезапуском сервера"
 
 
 def job_path(task_id: str) -> Path:
@@ -37,6 +40,24 @@ def persist_job(task_id: str) -> None:
     )
 
 
+def _reconcile_job_on_load(job: dict) -> bool:
+    """Помечает прерванные задачи и выравнивает шаги после сбоя."""
+    changed = False
+    status = job.get("status")
+    if status in ("running", "queued"):
+        job["status"] = "failed"
+        job["message"] = _STALE_JOB_MESSAGE
+        changed = True
+    if job.get("status") == "failed":
+        for step in job.get("steps") or []:
+            if step.get("status") == "running":
+                step["status"] = "error"
+                if not step.get("detail"):
+                    step["detail"] = job.get("message") or "ошибка"
+                changed = True
+    return changed
+
+
 def load_jobs_from_disk() -> None:
     if not JOBS_DIR.exists():
         return
@@ -49,7 +70,11 @@ def load_jobs_from_disk() -> None:
         try:
             data = json.loads(status_path.read_text(encoding="utf-8"))
             task_id = data.get("task_id") or job_dir.name
-            _jobs[task_id] = data
+            if _reconcile_job_on_load(data):
+                _jobs[task_id] = data
+                persist_job(task_id)
+            else:
+                _jobs[task_id] = data
         except (json.JSONDecodeError, KeyError, OSError):
             continue
 
@@ -92,22 +117,21 @@ def run_job(task_id: str, input_path: Path, options: PipelineOptions) -> None:
     _jobs[task_id]["message"] = "Обработка…"
     persist_job(task_id)
 
-    cfg = PipelineSettings(
-        input_path=input_path,
-        output_dir=out,
-        cache_dir=job_path(task_id) / "cache",
-        batch_size=options.batch_size,
-        skip_summary=options.skip_summary,
-        nrows=options.nrows,
-        ollama_model=options.model or PipelineSettings().ollama_model,
-    )
-
     started = time.perf_counter()
 
     def on_progress(step_id: str, status: str, detail: str = "") -> None:
         update_job_step(task_id, step_id, status, detail)
 
     try:
+        cfg = PipelineSettings(
+            input_path=input_path,
+            output_dir=out,
+            cache_dir=job_path(task_id) / "cache",
+            batch_size=options.batch_size,
+            skip_summary=options.skip_summary,
+            nrows=options.nrows,
+            ollama_model=options.model or OLLAMA_MODEL,
+        )
         result = run_pipeline(cfg, on_progress=on_progress)
         elapsed = round(time.perf_counter() - started, 1)
         stats = {
@@ -139,10 +163,16 @@ def require_job(task_id: str) -> dict:
     return job
 
 
+class JobNotReadyError(Exception):
+    def __init__(self, status: str):
+        self.status = status
+        super().__init__(status)
+
+
 def require_completed(task_id: str) -> Path:
     job = require_job(task_id)
     if job["status"] != "completed":
-        raise RuntimeError(job["status"])
+        raise JobNotReadyError(job["status"])
     return output_dir(task_id)
 
 
@@ -183,7 +213,7 @@ def generate_district_report(
         input_path=out / "input.xlsx",
         output_dir=out,
         cache_dir=job_path(task_id) / "cache",
-        ollama_model=model or PipelineSettings().ollama_model,
+        ollama_model=model or OLLAMA_MODEL,
     )
     summary = build_district_report_summary(
         labeled,
