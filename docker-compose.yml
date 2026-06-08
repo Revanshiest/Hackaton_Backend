@@ -1,0 +1,71 @@
+x-gpu: &gpu
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [gpu]
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: zeroproblems-ollama
+    <<: *gpu
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    restart: unless-stopped
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    container_name: zeroproblems-ollama-pull
+    depends_on:
+      - ollama
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+    entrypoint: ["/bin/sh", "-c", "sleep 8 && ollama pull gemma4:e2b"]
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: zeroproblems-api
+    <<: *gpu
+    depends_on:
+      ollama:
+        condition: service_started
+    volumes:
+      - ./data:/app/data
+      - ./cache:/app/cache
+      - ./dataset:/app/dataset
+      - ./model_onnx:/app/model_onnx
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONPATH=/app
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=gemma4:e2b
+      - NVIDIA_VISIBLE_DEVICES=all
+      - ONNX_DEVICE=cuda
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""
+    container_name: zeroproblems-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

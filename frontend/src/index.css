@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Theme variables ─────────────────────────────────── */
+:root {
+  --bg:      #f8fafc;
+  --bg-card: #ffffff;
+  --bg-sub:  #f1f5f9;
+  --border:  #e2e8f0;
+  --text:    #0f172a;
+  --text-2:  #475569;
+  --muted:   #94a3b8;
+  --head-bg: #ffffff;
+}
+
+[data-theme="dark"] {
+  --bg:      #020617;
+  --bg-card: #0f172a;
+  --bg-sub:  #1e293b;
+  --border:  #1e293b;
+  --text:    #f8fafc;
+  --text-2:  #94a3b8;
+  --muted:   #475569;
+  --head-bg: #0f172a;
+}
+
+@layer base {
+  html { transition: background-color 0.2s, color 0.2s; }
+  body { background: var(--bg); color: var(--text); }
+}
+
+/* ─── Reusable theme classes ──────────────────────────── */
+@layer components {
+  .t-bg      { background: var(--bg); }
+  .t-card    { background: var(--bg-card); border-color: var(--border); }
+  .t-sub     { background: var(--bg-sub); }
+  .t-border  { border-color: var(--border); }
+  .t-text    { color: var(--text); }
+  .t-text2   { color: var(--text-2); }
+  .t-muted   { color: var(--muted); }
+  .t-head    { background: var(--head-bg); border-color: var(--border); }
+}
+
+/* ─── Leaflet ─────────────────────────────────────────── */
+.leaflet-container { background: #f8fafc !important; overscroll-behavior: none; }
+.leaflet-interactive:focus { outline: none; }
+.leaflet-tooltip {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px -1px rgb(0 0 0/0.15);
+  padding: 4px 10px;
+}
+.leaflet-tooltip::before { display: none; }
+.leaflet-control-attribution { display: none; }
+
+/* ─── Step animation ──────────────────────────────────── */
+@keyframes pulse-ring {
+  0%   { transform: scale(1); opacity: 0.8; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+.step-pulse::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid #dc2626;
+  animation: pulse-ring 1.5s ease-out infinite;
+}
+
+@keyframes fadeIn  { from { opacity: 0 } to { opacity: 1 } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(12px) } to { opacity: 1; transform: translateY(0) } }
+.anim-fade { animation: fadeIn  0.3s ease-out; }
+.anim-up   { animation: slideUp 0.4s ease-out; }
