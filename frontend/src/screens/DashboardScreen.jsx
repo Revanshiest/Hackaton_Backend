@@ -218,7 +218,7 @@ export default function DashboardScreen({
       <LiveDemoPanel enabled={liveDemoOn} feed={liveFeed} />
 
       <div className="flex-1 flex flex-col xl:flex-row min-h-0 overflow-y-auto xl:overflow-hidden">
-        <div className="w-full xl:w-[46%] 2xl:w-[44%] flex flex-col flex-shrink-0 p-3 sm:p-4 xl:min-h-0 h-[min(48vh,440px)] xl:h-auto xl:flex-1">
+        <div className="w-full xl:w-[46%] 2xl:w-[44%] flex flex-col flex-shrink-0 p-3 sm:p-4 xl:min-h-0 h-[min(48vh,440px)] xl:h-auto xl:max-h-full xl:flex-1">
           <div className="rounded-2xl overflow-hidden flex flex-col shadow-sm flex-1 min-h-[240px]" style={{ ...card }}>
             <div
               className="px-3 sm:px-4 py-2.5 sm:py-3 flex items-center gap-2 flex-shrink-0 flex-wrap"
@@ -254,7 +254,7 @@ export default function DashboardScreen({
           </div>
         </div>
 
-        <div className="w-full xl:flex-1 xl:min-w-0 flex flex-col gap-3 sm:gap-4 p-3 sm:p-4 xl:overflow-hidden min-h-0 pb-6 xl:pb-4">
+        <div className="w-full xl:flex-1 xl:min-w-0 flex flex-col gap-3 sm:gap-4 p-3 sm:p-4 min-h-0 overflow-visible xl:overflow-y-auto xl:overscroll-contain pb-6 xl:pb-4">
           <div className="flex-shrink-0">
             <div className="flex items-center gap-2 mb-3 flex-wrap">
               <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
@@ -268,7 +268,7 @@ export default function DashboardScreen({
             </div>
           </div>
 
-          <div className="flex-1 rounded-2xl overflow-hidden flex flex-col shadow-sm min-h-[280px] xl:min-h-0" style={{ ...card }}>
+          <div className="flex-shrink-0 rounded-2xl overflow-hidden flex flex-col shadow-sm" style={{ ...card }}>
             <div
               className="px-3 sm:px-4 py-2.5 sm:py-3 flex items-center gap-2 flex-shrink-0 flex-wrap"
               style={{ borderBottom: '1px solid var(--border)' }}
@@ -290,7 +290,7 @@ export default function DashboardScreen({
                 </button>
               )}
             </div>
-            <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
+            <div className="overflow-x-hidden">
               <Top10Table districts={top10} onDistrictClick={onDistrictClick} />
             </div>
           </div>
