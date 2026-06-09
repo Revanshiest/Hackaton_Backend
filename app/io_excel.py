@@ -69,6 +69,11 @@ RENAME_MAP = {
     "text": "текст",
 }
 
+INCIDENT_COLUMNS = tuple(RENAME_MAP.values()) + ("row_id",)
+LABEL_COLUMNS = ("Метка_Класса", "Уровень_тяжести", "Уверенность", "severity", "is_problem")
+LABELED_COLUMNS = INCIDENT_COLUMNS + LABEL_COLUMNS
+ALLOWED_INTERNAL = frozenset(RENAME_MAP.keys())
+
 INFERENCE_COLUMNS = {
     "группа": "Группа тем",
     "тема": "Тема",
@@ -245,47 +250,78 @@ def _has_named_columns(df: pd.DataFrame) -> bool:
     return sum(m in cols for m in markers) >= 2
 
 
+def _is_response_time_column(name: str) -> bool:
+    c = str(name).lower().strip()
+    return "время" in c and ("ответ" in c or "перв" in c)
+
+
+def _map_header_column(col: str, mapping: dict[str, str]) -> str | None:
+    """Сопоставляет заголовок Excel с внутренним полем; None — колонку игнорируем."""
+    c = str(col).lower().strip()
+    c_compact = c.replace(" ", "")
+
+    if _is_response_time_column(c):
+        return None
+    if c_compact == "датасоздания" or c == "дата создания":
+        return "created_at"
+    if c_compact in ("датаокончания", "датазакрытия") or c in ("дата окончания", "дата закрытия"):
+        return "closed_at"
+    if "закрыт" in c and "дата" in c:
+        return "closed_at"
+    if c in ("t",):
+        return "created_at"
+    if c in ("u",):
+        return "closed_at"
+    if "регион" in c and "муниципал" not in c:
+        return "region"
+    if "групп" in c and "group" not in mapping.values():
+        return "group"
+    if "муниципал" in c:
+        return "municipality"
+    if "насел" in c:
+        return "settlement"
+    if re.search(r"\bулиц", c):
+        return "street"
+    if c in ("дом", "house") or c.startswith("дом "):
+        return "house"
+    if c == "тема" or c.startswith("тема "):
+        return "topic"
+    if ("тип инц" in c or "тип обращ" in c) and "topic" not in mapping.values():
+        return "topic"
+    if "тег" in c:
+        return "tags"
+    if c == "текст инцидента" or ("текст" in c and "инцидент" in c and "ответ" not in c):
+        return "text"
+    if c in ("ai", "ak"):
+        return "text"
+    return None
+
+
+def _load_cabinet_export(path: Path, engine: str) -> pd.DataFrame:
+    """Выгрузка кабинета: только R,S,T,U,V,W,AI — дата создания строго из колонки R."""
+    layout = dict(CABINET_EXPORT_COLUMN_LETTERS)
+    usecols = _layout_usecols(layout)
+    raw = pd.read_excel(path, header=0, engine=engine, usecols=usecols)
+    out = _normalize_loaded(_dataframe_from_layout(raw, layout, usecols))
+    out.attrs["column_layout"] = "cabinet_export"
+    return out
+
+
 def _load_by_header_names(df: pd.DataFrame) -> pd.DataFrame:
     mapping: dict[str, str] = {}
     for col in df.columns:
-        c = str(col).lower().strip()
-        c_compact = c.replace(" ", "")
-        if c_compact == "датасоздания" or c == "дата создания":
-            mapping[col] = "created_at"
-        elif c_compact in ("датаокончания", "датазакрытия") or c in ("дата окончания", "дата закрытия"):
-            mapping[col] = "closed_at"
-        elif "закрыт" in c and "дата" in c:
-            mapping[col] = "closed_at"
-        elif c in ("t",):
-            mapping[col] = "created_at"
-        elif c in ("u",):
-            mapping[col] = "closed_at"
-        elif "регион" in c and "муниципал" not in c:
-            mapping[col] = "region"
-        elif "групп" in c and "group" not in mapping.values():
-            mapping[col] = "group"
-        elif "муниципал" in c:
-            mapping[col] = "municipality"
-        elif "насел" in c:
-            mapping[col] = "settlement"
-        elif re.search(r"\bулиц", c):
-            mapping[col] = "street"
-        elif c in ("дом", "house") or c.startswith("дом "):
-            mapping[col] = "house"
-        elif c == "тема":
-            mapping[col] = "topic"
-        elif ("тип инц" in c or "тип обращ" in c) and "topic" not in mapping.values():
-            mapping[col] = "topic"
-        elif "тег" in c:
-            mapping[col] = "tags"
-        elif "тем" in c and "topic" not in mapping.values():
-            mapping[col] = "topic"
-        elif c == "текст инцидента" or ("текст" in c and "инцидент" in c and "ответ" not in c):
-            mapping[col] = "text"
-        elif c in ("ai", "ak"):
-            mapping[col] = "text"
+        target = _map_header_column(col, mapping)
+        if target is None:
+            continue
+        if target in mapping.values():
+            continue
+        mapping[col] = target
+
+    if not mapping:
+        raise ValueError("Не удалось сопоставить колонки Excel с полями инцидента")
 
     out = df.rename(columns=mapping)
+    out = out[[c for c in out.columns if c in ALLOWED_INTERNAL]]
     return _normalize_loaded(out)
 
 
@@ -332,8 +368,42 @@ def _normalize_loaded(df: pd.DataFrame) -> pd.DataFrame:
             out[col] = out[col].astype(str).replace({"nan": "", "None": ""}).str.strip()
 
     out = out.rename(columns={k: v for k, v in RENAME_MAP.items() if k in out.columns})
+    keep = [c for c in LABELED_COLUMNS if c in out.columns and c != "row_id"]
+    out = out[keep]
     out["row_id"] = range(len(out))
     return out
+
+
+def select_labeled_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Оставляет только канонические колонки инцидента и разметки."""
+    keep = [c for c in LABELED_COLUMNS if c in df.columns]
+    return df[keep].copy() if keep else df.copy()
+
+
+def parquet_safe(df: pd.DataFrame) -> pd.DataFrame:
+    """Приводит DataFrame к типам, совместимым с pyarrow/parquet."""
+    out = select_labeled_columns(df)
+    for col in out.columns:
+        if col in ("row_id", "severity", "Метка_Класса") or col == "is_problem":
+            continue
+        if pd.api.types.is_bool_dtype(out[col]):
+            continue
+        if pd.api.types.is_numeric_dtype(out[col]):
+            continue
+        out[col] = out[col].map(lambda x: "" if pd.isna(x) else str(x))
+    return out
+
+
+def read_labeled_parquet(path: Path | str) -> pd.DataFrame:
+    """Читает labeled.parquet, не загружая лишние колонки (важно для старых файлов)."""
+    import pyarrow.parquet as pq
+
+    path = Path(path)
+    pf = pq.ParquetFile(path)
+    names = [name for name in pf.schema_arrow.names if name in LABELED_COLUMNS]
+    if not names:
+        raise ValueError(f"В {path} нет известных колонок разметки")
+    return pf.read(columns=names).to_pandas()
 
 
 def load_incidents(path: Path | str, header_row: int | None = None) -> pd.DataFrame:
@@ -351,14 +421,12 @@ def load_incidents(path: Path | str, header_row: int | None = None) -> pd.DataFr
             nrows=LAYOUT_PREVIEW_ROWS,
         )
         if len(preview) > 0 and _is_named_export_header(preview.iloc[0]):
-            raw = pd.read_excel(path, header=0, engine=engine)
-            if _has_named_columns(raw):
-                out = _load_by_header_names(raw)
-                out.attrs["column_layout"] = "cabinet_export"
-                return out
+            return _load_cabinet_export(path, engine)
 
         preview = _drop_header_row(preview)
         layout = detect_column_layout(preview)
+        if layout.get("created_at") == "R":
+            return _load_cabinet_export(path, engine)
         usecols = _layout_usecols(layout)
         raw = pd.read_excel(path, header=None, engine=engine, usecols=usecols)
         raw = _drop_header_row(raw)
@@ -366,6 +434,10 @@ def load_incidents(path: Path | str, header_row: int | None = None) -> pd.DataFr
 
     raw = pd.read_excel(path, header=header_row, engine=engine)
     if _has_named_columns(raw):
+        if header_row == 0 and len(raw) > 0:
+            first = " ".join(str(v).lower() for v in raw.columns)
+            if "дата создания" in first and "текст инцидента" in first:
+                return _load_cabinet_export(path, engine)
         return _load_by_header_names(raw)
     return _load_by_column_letters(raw)
 

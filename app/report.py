@@ -102,7 +102,9 @@ def enrich_report_period(report: dict, cache_dir: Path | None = None) -> dict:
     start, end = None, None
     labeled_path = cache_dir / "labeled.parquet" if cache_dir else None
     if labeled_path is not None and labeled_path.exists():
-        start, end = compute_incident_date_range(pd.read_parquet(labeled_path))
+        from app.io_excel import read_labeled_parquet
+
+        start, end = compute_incident_date_range(read_labeled_parquet(labeled_path))
 
     if (start is None or end is None) and cache_dir is not None:
         job_dir = cache_dir.parent
@@ -244,7 +246,9 @@ def write_excel_report(
         if not groups_df.empty:
             groups_df.to_excel(writer, sheet_name="Группы", index=False)
         if labeled_df is not None:
-            sample = labeled_df.head(5000)
+            from app.io_excel import select_labeled_columns
+
+            sample = select_labeled_columns(labeled_df).head(5000)
             sample.to_excel(writer, sheet_name="Размеченные_примеры", index=False)
 
         meta = pd.DataFrame(

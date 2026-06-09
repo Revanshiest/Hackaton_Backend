@@ -163,3 +163,37 @@ class PipelineOptions(BaseModel):
         True,
         description="Короткие ИИ-сводки (параллельно по Top-10/Top-3) + итоговая справка; false — более развёрнутый текст",
     )
+
+
+class AgencyPreviewItem(BaseModel):
+    name: str
+    total_count: int
+    critical_count: int
+    counts: dict[str, int]
+
+
+class MunicipalityPreviewItem(BaseModel):
+    name: str
+    agencies: List[AgencyPreviewItem]
+
+
+class DepartmentReportsPreview(BaseModel):
+    municipalities_count: int
+    agencies_count: int
+    reports_count: int
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+    municipalities: List[MunicipalityPreviewItem]
+
+
+class DepartmentReportsStatus(BaseModel):
+    task_id: str
+    status: str
+    message: str = ""
+    progress: float = 0
+    current: int = 0
+    total: int = 0
+    current_municipality: Optional[str] = None
+    current_agency: Optional[str] = None
+    phase: Optional[str] = None
+    preview: Optional[DepartmentReportsPreview] = None

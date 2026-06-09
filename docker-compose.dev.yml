@@ -11,6 +11,7 @@ services:
         ONNX_VARIANT: ${ONNX_VARIANT:-gpu}
     volumes:
       - ./app:/app/app
+      - ./data:/app/data
       - ./pipeline:/app/pipeline
       - ./src:/app/src
       - ./schemas.py:/app/schemas.py

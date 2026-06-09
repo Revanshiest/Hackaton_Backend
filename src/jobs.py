@@ -262,7 +262,9 @@ def get_labeled_df(task_id: str):
         return None
     import pandas as pd
 
-    return pd.read_parquet(cache_path)
+    from app.io_excel import read_labeled_parquet
+
+    return read_labeled_parquet(cache_path)
 
 
 def generate_district_report(
@@ -289,7 +291,9 @@ def generate_district_report(
 
     import pandas as pd
 
-    labeled = pd.read_parquet(cache_path)
+    from app.io_excel import read_labeled_parquet
+
+    labeled = read_labeled_parquet(cache_path)
     cfg = PipelineSettings(
         input_path=out / "input.xlsx",
         output_dir=out,

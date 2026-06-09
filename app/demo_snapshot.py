@@ -6,6 +6,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.io_excel import read_labeled_parquet
 from app.progress import PIPELINE_STEPS
 from app.report import (
     build_dashboard,
@@ -95,9 +96,7 @@ def build_demo_snapshot(
     labeled_df = None
     labeled_path = report_file.parent.parent / "cache" / "labeled.parquet"
     if labeled_path.exists():
-        import pandas as pd
-
-        labeled_df = pd.read_parquet(labeled_path)
+        labeled_df = read_labeled_parquet(labeled_path)
         if not report.get("severity_breakdown"):
             report["severity_breakdown"] = build_severity_breakdown(labeled_df)
         if labeled_df is not None and not labeled_df.empty:

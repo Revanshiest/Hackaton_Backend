@@ -12,6 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.config.paths import DATA_DIR, JOBS_DIR
+from app.agency_report import build_department_preview, build_department_reports_zip
 from app.pdf_report import (  # noqa: I001
     build_district_pdf,
     build_region_pdf,
@@ -22,6 +23,8 @@ from app.report import build_dashboard, build_district_report, build_top10_excel
 from schemas import (
     DashboardResponse,
     DatasetUploadResponse,
+    DepartmentReportsPreview,
+    DepartmentReportsStatus,
     DistrictReport,
     DistrictReportResponse,
     GenerateReportRequest,
@@ -34,6 +37,7 @@ from schemas import (
 from src import jobs
 
 _district_tasks: dict[str, dict] = {}
+_department_export_tasks: dict[str, dict] = {}
 
 
 @asynccontextmanager
@@ -388,6 +392,181 @@ async def post_region_report_pdf(body: RegionPdfRequest):
         media_type="application/pdf",
         headers={"Content-Disposition": content_disposition_region_header()},
     )
+
+
+def _department_zip_response(zip_bytes: bytes) -> Response:
+    from urllib.parse import quote
+
+    filename = "zeroproblems_vedomstva.zip"
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{filename}"; filename*=UTF-8\'\'{quote("zeroproblems_otchety_vedomstva.zip")}'
+            ),
+        },
+    )
+
+
+def _load_labeled_for_export(task_id: str):
+    _require_completed(task_id)
+    try:
+        return jobs.get_labeled_df(task_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "Размеченные данные ещё не готовы") from None
+
+
+@api_router.get(
+    "/jobs/{task_id}/reports/departments/preview",
+    response_model=DepartmentReportsPreview,
+    summary="Превью структуры отчётов для ведомств",
+)
+async def get_department_reports_preview(task_id: str):
+    labeled_df = _load_labeled_for_export(task_id)
+    try:
+        return build_department_preview(labeled_df)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@api_router.post(
+    "/jobs/{task_id}/reports/departments/generate",
+    response_model=DepartmentReportsStatus,
+    summary="Запуск фоновой генерации ZIP для ведомств",
+)
+async def start_department_reports_generate(task_id: str, background_tasks: BackgroundTasks):
+    labeled_df = _load_labeled_for_export(task_id)
+    try:
+        preview = build_department_preview(labeled_df)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    gen_task_id = f"dept-{uuid.uuid4().hex[:10]}"
+    _department_export_tasks[gen_task_id] = {
+        "task_id": gen_task_id,
+        "parent_task_id": task_id,
+        "status": "processing",
+        "message": "Подготовка архива…",
+        "progress": 0.0,
+        "current": 0,
+        "total": preview["reports_count"],
+        "current_municipality": None,
+        "current_agency": None,
+        "phase": "start",
+        "preview": preview,
+        "zip_bytes": None,
+        "error": None,
+    }
+
+    def _on_progress(current: int, total: int, municipality: str, agency: str, phase: str) -> None:
+        task = _department_export_tasks.get(gen_task_id)
+        if not task:
+            return
+        pct = round(100 * current / max(total, 1), 1)
+        phase_labels = {
+            "pdf": "Формирование PDF",
+            "excel": "Формирование Excel",
+            "archive": "Сборка архива",
+        }
+        task.update(
+            {
+                "current": current,
+                "total": total,
+                "progress": pct,
+                "current_municipality": municipality or None,
+                "current_agency": agency or None,
+                "phase": phase,
+                "message": (
+                    f"{phase_labels.get(phase, 'Обработка')}: {municipality} → {agency}"
+                    if municipality and agency
+                    else "Финализация архива…"
+                ),
+            }
+        )
+
+    def _run() -> None:
+        try:
+            zip_bytes = build_department_reports_zip(labeled_df, on_progress=_on_progress)
+            task = _department_export_tasks[gen_task_id]
+            task["status"] = "completed"
+            task["progress"] = 100.0
+            task["message"] = "Архив готов к скачиванию"
+            task["zip_bytes"] = zip_bytes
+            task["phase"] = "done"
+        except Exception as exc:
+            task = _department_export_tasks.get(gen_task_id)
+            if task:
+                task["status"] = "failed"
+                task["message"] = str(exc)
+                task["error"] = str(exc)
+
+    background_tasks.add_task(_run)
+    return _department_status_response(gen_task_id)
+
+
+def _department_status_response(gen_task_id: str) -> DepartmentReportsStatus:
+    task = _department_export_tasks.get(gen_task_id)
+    if not task:
+        raise HTTPException(404, "Задача генерации не найдена")
+    preview = task.get("preview")
+    return DepartmentReportsStatus(
+        task_id=gen_task_id,
+        status=task["status"],
+        message=task.get("message", ""),
+        progress=float(task.get("progress") or 0),
+        current=int(task.get("current") or 0),
+        total=int(task.get("total") or 0),
+        current_municipality=task.get("current_municipality"),
+        current_agency=task.get("current_agency"),
+        phase=task.get("phase"),
+        preview=DepartmentReportsPreview(**preview) if preview else None,
+    )
+
+
+@api_router.get(
+    "/reports/departments/{gen_task_id}",
+    response_model=DepartmentReportsStatus,
+    summary="Статус генерации ZIP для ведомств",
+)
+async def get_department_reports_status(gen_task_id: str):
+    return _department_status_response(gen_task_id)
+
+
+@api_router.get(
+    "/reports/departments/{gen_task_id}/download",
+    summary="Скачать сформированный ZIP для ведомств",
+)
+async def download_department_reports(gen_task_id: str):
+    task = _department_export_tasks.get(gen_task_id)
+    if not task:
+        raise HTTPException(404, "Задача генерации не найдена")
+    if task["status"] != "completed" or not task.get("zip_bytes"):
+        raise HTTPException(409, f"Статус: {task['status']}")
+    return _department_zip_response(task["zip_bytes"])
+
+
+@api_router.get(
+    "/jobs/{task_id}/reports/departments.zip",
+    summary="ZIP-архив отчётов для ведомств (синхронно)",
+)
+async def get_department_reports_zip(task_id: str):
+    labeled_df = _load_labeled_for_export(task_id)
+    try:
+        zip_bytes = build_department_reports_zip(labeled_df)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(500, f"Не удалось сформировать архив: {exc}") from exc
+    return _department_zip_response(zip_bytes)
+
+
+@api_router.get(
+    "/jobs/{task_id}/reports/departments",
+    summary="ZIP-архив отчётов для ведомств (синхронно, без .zip в URL)",
+)
+async def get_department_reports_zip_alt(task_id: str):
+    return await get_department_reports_zip(task_id)
 
 
 @api_router.post(

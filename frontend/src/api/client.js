@@ -143,4 +143,61 @@ export const api = {
     })
     return api.savePdfResponse(res)
   },
+
+  departmentReportsZipUrl(taskId) {
+    return `${BASE}/api/v1/jobs/${encodeURIComponent(taskId)}/reports/departments.zip`
+  },
+
+  departmentReportsDownloadUrl(taskId) {
+    return `${BASE}/api/v1/jobs/${encodeURIComponent(taskId)}/reports/departments`
+  },
+
+  getDepartmentReportsPreview(taskId) {
+    return request(`/api/v1/jobs/${encodeURIComponent(taskId)}/reports/departments/preview`)
+  },
+
+  startDepartmentReportsGenerate(taskId) {
+    return request(`/api/v1/jobs/${encodeURIComponent(taskId)}/reports/departments/generate`, {
+      method: 'POST',
+    })
+  },
+
+  getDepartmentReportsStatus(genTaskId) {
+    return request(`/api/v1/reports/departments/${encodeURIComponent(genTaskId)}`)
+  },
+
+  departmentReportsByGenUrl(genTaskId) {
+    return `${BASE}/api/v1/reports/departments/${encodeURIComponent(genTaskId)}/download`
+  },
+
+  async saveZipResponse(res) {
+    if (!res.ok) {
+      let detail = res.statusText
+      try {
+        const body = await res.json()
+        detail = body.detail ?? detail
+      } catch {
+        /* ignore */
+      }
+      throw new Error(detail || `HTTP ${res.status}`)
+    }
+    const blob = await res.blob()
+    const filename = api.parseContentDisposition(res.headers.get('content-disposition')) || 'zeroproblems_vedomstva.zip'
+    const url = URL.createObjectURL(blob)
+    Object.assign(document.createElement('a'), { href: url, download: filename }).click()
+    URL.revokeObjectURL(url)
+  },
+
+  async downloadDepartmentReportsZip(taskId) {
+    let res = await fetch(api.departmentReportsZipUrl(taskId))
+    if (res.status === 404) {
+      res = await fetch(api.departmentReportsDownloadUrl(taskId))
+    }
+    return api.saveZipResponse(res)
+  },
+
+  async downloadDepartmentReportsByGenId(genTaskId) {
+    const res = await fetch(api.departmentReportsByGenUrl(genTaskId))
+    return api.saveZipResponse(res)
+  },
 }

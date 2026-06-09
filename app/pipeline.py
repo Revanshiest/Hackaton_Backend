@@ -12,7 +12,7 @@ import pandas as pd
 from app.aggregate import build_municipality_rankings
 from app.breakdown import attach_reasons_to_rankings, build_topic_group_breakdown
 from app.config.settings import PipelineSettings
-from app.io_excel import load_incidents, to_inference_frame
+from app.io_excel import load_incidents, parquet_safe, select_labeled_columns, to_inference_frame
 from app.report import build_severity_breakdown, compute_incident_date_range, write_excel_report, write_report_json
 from app.summary import (
     _attach_summary_paragraphs,
@@ -88,7 +88,8 @@ def run_pipeline(
     labeled["Уверенность"] = result.confidences.round(4)
     labeled["severity"] = labeled["Метка_Класса"]
     labeled["is_problem"] = labeled["severity"] > 0
-    labeled.to_parquet(cfg.cache_dir / "labeled.parquet", index=False)
+    labeled = select_labeled_columns(labeled)
+    parquet_safe(labeled).to_parquet(cfg.cache_dir / "labeled.parquet", index=False)
 
     n_prob = int(labeled["is_problem"].sum())
     step("classify", "done", f"проблемных обращений: {n_prob}")

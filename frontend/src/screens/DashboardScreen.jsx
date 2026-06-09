@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Zap, TrendingUp, AlertTriangle, RotateCcw, Eye, EyeOff, Loader2, Download, FileType, CalendarRange } from 'lucide-react'
+import { Zap, TrendingUp, AlertTriangle, RotateCcw, Eye, EyeOff, Loader2, Download, FileType, CalendarRange, Archive } from 'lucide-react'
 import { getAllDemoDistrictReports, getDemoMergedDashboard, demoMeta } from '../demo'
 import { api } from '../api/client'
 import { mergeDashboard } from '../api/adapters'
@@ -10,6 +10,7 @@ import DistrictCard from '../components/DistrictCard'
 import ThemeToggle from '../components/ThemeToggle'
 import TaskTimingPopover from '../components/TaskTimingPopover'
 import LiveDemoPanel, { LiveDemoToggle } from '../components/LiveDemoPanel'
+import DepartmentReportsModal from '../components/DepartmentReportsModal'
 import { useLiveDemoFeed } from '../hooks/useLiveDemoFeed'
 
 const card = {
@@ -36,6 +37,7 @@ export default function DashboardScreen({
   const [error, setError] = useState('')
   const [showTiles, setShowTiles] = useState(true)
   const [exportingRegionPdf, setExportingRegionPdf] = useState(false)
+  const [deptModalOpen, setDeptModalOpen] = useState(false)
   const [liveDemoOn, setLiveDemoOn] = useState(false)
   const liveFeed = useLiveDemoFeed(liveDemoOn)
 
@@ -66,6 +68,13 @@ export default function DashboardScreen({
     } finally {
       setExportingRegionPdf(false)
     }
+  }
+
+  const effectiveTaskId = isDemo ? demoMeta.source_job : taskId
+
+  const handleDepartmentReports = () => {
+    if (!effectiveTaskId) return
+    setDeptModalOpen(true)
   }
 
   useEffect(() => {
@@ -203,6 +212,22 @@ export default function DashboardScreen({
             <FileType className="w-3.5 h-3.5" />
             <span className="hidden sm:block">{exportingRegionPdf ? 'PDF…' : 'PDF все МО'}</span>
           </button>
+          {effectiveTaskId && (
+            <button
+              type="button"
+              onClick={handleDepartmentReports}
+              className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg transition-colors hover:opacity-90"
+              style={{
+                border: '1px solid var(--border)',
+                color: 'var(--text-2)',
+                background: 'var(--bg-card)',
+              }}
+              title="ZIP с PDF и Excel для каждого ведомства по муниципалитетам"
+            >
+              <Archive className="w-3.5 h-3.5" />
+              <span className="hidden lg:block">Отчёты в ведомства</span>
+            </button>
+          )}
           <button
             onClick={onReset}
             className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md transition-colors"
@@ -214,6 +239,12 @@ export default function DashboardScreen({
           <ThemeToggle dark={dark} onToggle={onToggleTheme} />
         </div>
       </header>
+
+      <DepartmentReportsModal
+        taskId={effectiveTaskId}
+        open={deptModalOpen}
+        onClose={() => setDeptModalOpen(false)}
+      />
 
       <LiveDemoPanel enabled={liveDemoOn} feed={liveFeed} />
 
