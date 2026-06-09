@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { CheckCircle2, Database, BrainCircuit, Layers, Tag, FileText, Zap, AlertCircle } from 'lucide-react'
-import { analysisSteps } from '../data/mockData'
+import { demoPipelineSteps } from '../demo'
 import { api } from '../api/client'
 
 const STEP_ICONS = {
@@ -12,24 +12,25 @@ const STEP_ICONS = {
   report: FileText,
 }
 
-const DEMO_DURATION = 1400
+const DEMO_STEP_MS = 1800
 
 function stepIcon(id, idx) {
   return STEP_ICONS[id] || [Database, BrainCircuit, Layers, Tag, FileText][idx] || FileText
 }
 
 export default function ProgressScreen({ taskId, onDone, onReset }) {
-  const [steps, setSteps] = useState(analysisSteps.map((s) => ({ ...s, status: 'pending', detail: '' })))
+  const [steps, setSteps] = useState(demoPipelineSteps.map((s) => ({ ...s, status: 'pending', detail: '' })))
   const [currentStep, setCurrentStep] = useState(0)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
 
   useEffect(() => {
     if (!taskId) {
-      const total = analysisSteps.length * DEMO_DURATION
+      const steps = demoPipelineSteps
+      const total = steps.length * DEMO_STEP_MS
       const iv = setInterval(() => setProgress((p) => Math.min(p + 100 / (total / 50), 100)), 50)
-      const timers = analysisSteps.map((_, i) =>
-        setTimeout(() => setCurrentStep(i + 1), (i + 1) * DEMO_DURATION),
+      const timers = steps.map((_, i) =>
+        setTimeout(() => setCurrentStep(i + 1), (i + 1) * DEMO_STEP_MS),
       )
       const done = setTimeout(() => {
         clearInterval(iv)
@@ -85,7 +86,7 @@ export default function ProgressScreen({ taskId, onDone, onReset }) {
     return () => { cancelled = true }
   }, [taskId, onDone])
 
-  const displaySteps = taskId ? steps : analysisSteps
+  const displaySteps = taskId ? steps : demoPipelineSteps
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4" style={{ background: 'var(--bg)' }}>
@@ -99,7 +100,7 @@ export default function ProgressScreen({ taskId, onDone, onReset }) {
       <div className="w-full max-w-sm anim-up">
         <h2 className="text-xl font-bold text-center mb-1" style={{ color: 'var(--text)' }}>Анализ данных</h2>
         <p className="text-sm text-center mb-10" style={{ color: 'var(--muted)' }}>
-          {taskId ? `Задача ${taskId}` : 'Demo-режим…'}
+          {taskId ? `Задача ${taskId}` : 'Demo — снимок реальных данных…'}
         </p>
 
         {error ? (

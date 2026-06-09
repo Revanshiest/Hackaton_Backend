@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Zap, TrendingUp, AlertTriangle, RotateCcw, Eye, EyeOff, Loader2 } from 'lucide-react'
-import { districts as mockDistricts } from '../data/mockData'
+import { Zap, TrendingUp, AlertTriangle, RotateCcw, Eye, EyeOff, Loader2, Download } from 'lucide-react'
+import { getDemoMergedDashboard, demoMeta } from '../demo'
 import { api } from '../api/client'
 import { mergeDashboard } from '../api/adapters'
 import OmskMap from '../components/OmskMap'
@@ -32,10 +32,10 @@ export default function DashboardScreen({
 
   useEffect(() => {
     if (isDemo || !taskId) {
-      const sorted = [...mockDistricts].sort((a, b) => a.score - b.score)
-      setDistricts(mockDistricts)
-      setTop10(sorted.slice(0, 10))
-      setCritical(sorted.slice(0, 3))
+      const merged = getDemoMergedDashboard()
+      setDistricts(merged.districts)
+      setTop10(merged.top10)
+      setCritical(merged.critical)
       setLoading(false)
       return
     }
@@ -97,13 +97,22 @@ export default function DashboardScreen({
           </div>
           <span className="font-bold tracking-tight" style={{ color: 'var(--text)' }}>ZeroProblems</span>
           <span className="hidden sm:block text-sm" style={{ color: 'var(--muted)' }}>
-            · {isDemo ? 'Demo' : `задача ${taskId}`}
+            · {isDemo ? 'Demo-снимок' : `задача ${taskId}`}
           </span>
         </div>
         <div className="flex items-center gap-3">
           <div className="hidden sm:flex items-center gap-2 text-xs" style={{ color: 'var(--muted)' }}>
-            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            Данные актуальны
+            {isDemo ? (
+              <>
+                <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                Снимок от {demoMeta.generated_at?.slice(0, 10) ?? '—'} · {demoMeta.municipalities} МО
+              </>
+            ) : (
+              <>
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Данные актуальны
+              </>
+            )}
           </div>
           <button
             onClick={onReset}
@@ -164,7 +173,18 @@ export default function DashboardScreen({
               <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
                 Топ-10 проблемных районов
               </span>
-              <span className="ml-auto text-xs" style={{ color: 'var(--muted)' }}>ниже скор — хуже</span>
+              <span className="text-xs" style={{ color: 'var(--muted)' }}>ниже скор — хуже</span>
+              {!isDemo && taskId && (
+                <button
+                  type="button"
+                  onClick={() => window.open(api.excelTop10Url(taskId), '_blank')}
+                  className="ml-auto flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg transition-colors hover:opacity-90"
+                  style={{ border: '1px solid var(--border)', color: 'var(--text-2)', background: 'var(--bg-card)' }}
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Excel Top-10
+                </button>
+              )}
             </div>
             <div className="flex-1 overflow-y-auto overflow-x-hidden min-h-0">
               <Top10Table districts={top10} onDistrictClick={onDistrictClick} />

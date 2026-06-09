@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.config.paths import DATA_DIR, JOBS_DIR
-from app.report import build_dashboard, build_district_report
+from app.report import build_dashboard, build_district_report, build_top10_excel_from_report
 from schemas import (
     DashboardResponse,
     DatasetUploadResponse,
@@ -105,6 +105,7 @@ async def upload_dataset(
     batch_size: int = 16,
     nrows: int | None = None,
     model: str | None = None,
+    llm_fast_mode: bool = True,
 ):
     if not file.filename or not file.filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(400, "Нужен файл .xlsx или .xls")
@@ -121,6 +122,7 @@ async def upload_dataset(
         batch_size=batch_size,
         nrows=nrows,
         model=model,
+        llm_fast_mode=llm_fast_mode,
     )
     jobs.create_job(task_id, file.filename)
     background_tasks.add_task(jobs.run_job, task_id, dest, options)
@@ -165,13 +167,35 @@ async def get_job_summary(task_id: str):
     return PlainTextResponse(path.read_text(encoding="utf-8"), media_type="text/markdown")
 
 
-@api_router.get("/jobs/{task_id}/excel", summary="Скачать Excel-отчёт")
+@api_router.get("/jobs/{task_id}/summary/briefs", summary="Справки по Top-3 и Top-10")
+async def get_job_municipality_briefs(task_id: str):
+    out = _require_completed(task_id)
+    path = out / "municipality_briefs.md"
+    if not path.exists():
+        raise HTTPException(404, "Справки по муниципалитетам не найдены — перезапустите обработку")
+    return PlainTextResponse(path.read_text(encoding="utf-8"), media_type="text/markdown")
+
+
+@api_router.get("/jobs/{task_id}/excel", summary="Скачать полный Excel-отчёт")
 async def download_excel(task_id: str):
     out = _require_completed(task_id)
     path = out / "report_top_districts.xlsx"
     if not path.exists():
         raise HTTPException(404, "Excel-отчёт не найден")
     return FileResponse(path, filename="report_top_districts.xlsx")
+
+
+@api_router.get("/jobs/{task_id}/excel/top10", summary="Скачать Excel по Top-10")
+async def download_excel_top10(task_id: str):
+    out = _require_completed(task_id)
+    path = out / "report_top10.xlsx"
+    if not path.exists():
+        try:
+            report = jobs.get_report(task_id)
+            path = build_top10_excel_from_report(report, out)
+        except FileNotFoundError:
+            raise HTTPException(404, "Отчёт Top-10 не найден") from None
+    return FileResponse(path, filename="report_top10.xlsx")
 
 
 @api_router.get(
@@ -223,7 +247,12 @@ async def get_district_report(district_id: int, task_id: str | None = None):
         raise HTTPException(404, "Отчёт ещё не готов") from None
 
     custom_summary = jobs.get_district_summary(task_id, district_id)
-    result = build_district_report(report, district_id, analytical_summary=custom_summary)
+    result = build_district_report(
+        report,
+        district_id,
+        analytical_summary=custom_summary,
+        labeled_df=jobs.get_labeled_df(task_id),
+    )
     if result is None:
         raise HTTPException(404, f"Район с id={district_id} не найден")
     return result

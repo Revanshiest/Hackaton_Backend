@@ -9,6 +9,7 @@ export default function Top10Table({ districts, onDistrictClick }) {
           <th className="text-left px-3 py-2.5 text-xs font-semibold" style={{ color: 'var(--muted)' }}>Район</th>
           <th className="text-right px-3 py-2.5 text-xs font-semibold w-14" style={{ color: 'var(--muted)' }}>Скор</th>
           <th className="text-left px-3 py-2.5 text-xs font-semibold w-24" style={{ color: 'var(--muted)' }}>Проблема</th>
+          <th className="text-left px-3 py-2.5 text-xs font-semibold" style={{ color: 'var(--muted)' }}>Вывод</th>
         </tr>
       </thead>
       <tbody>
@@ -27,6 +28,9 @@ export default function Top10Table({ districts, onDistrictClick }) {
               <span className="font-bold tabular-nums text-sm" style={{ color: scoreColor(d.score) }}>{d.score}</span>
             </td>
             <td className="px-3 py-3 text-xs truncate" style={{ color: 'var(--muted)' }}>{d.topProblem}</td>
+            <td className="px-3 py-3 text-xs line-clamp-3 leading-relaxed" style={{ color: 'var(--text-2)' }} title={d.summary || ''}>
+              {d.summary || '—'}
+            </td>
           </tr>
         ))}
       </tbody>

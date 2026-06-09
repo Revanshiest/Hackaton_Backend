@@ -13,11 +13,13 @@ from app.aggregate import build_municipality_rankings
 from app.breakdown import attach_reasons_to_rankings, build_topic_group_breakdown
 from app.config.settings import PipelineSettings
 from app.io_excel import load_incidents, to_inference_frame
-from app.report import write_excel_report, write_report_json
+from app.report import build_severity_breakdown, write_excel_report, write_report_json
 from app.summary import (
+    _attach_summary_paragraphs,
+    attach_summary_text_from_paragraphs,
     build_executive_summary,
     build_municipality_summaries,
-    enrich_reasons_with_llm,
+    build_top3_summaries,
     save_summary_artifacts,
 )
 from pipeline.inference import run_inference
@@ -76,25 +78,55 @@ def run_pipeline(
     step("aggregate", "done", f"всего {len(top_all)} МО; Top-3: {top3_names}")
 
     step("topics", "running", "темы, группы, примеры обращений")
+    all_munis = top_all["муниципалитет"].tolist() if len(top_all) else []
     top_munis = top10["муниципалитет"].tolist() if len(top10) else []
-    topics_df, groups_df, reasons_df = build_topic_group_breakdown(labeled, top_munis, cfg)
+    topics_df, groups_df, reasons_df = build_topic_group_breakdown(labeled, all_munis, cfg)
 
     summary_text = ""
+    top3_summaries = pd.DataFrame()
     muni_summaries = pd.DataFrame()
     if not cfg.skip_summary and top_munis:
-        step("summary", "running", f"LLM {cfg.ollama_model}: Top-10 + справка")
-        reasons_enriched = enrich_reasons_with_llm(reasons_df, cfg)
-        muni_summaries = build_municipality_summaries(labeled, top10, reasons_enriched, cfg)
+        mode = (
+            f"ИИ-сводки Top-10×{len(top_munis)} + Top-3 + справка (параллельно)"
+            if cfg.llm_fast_mode
+            else f"ИИ-сводки развёрнутые Top-10×{len(top_munis)} + Top-3 + справка"
+        )
+        step("summary", "running", f"{mode} ({cfg.ollama_model})")
+
+        top3_enriched = attach_reasons_to_rankings(top3, reasons_df)
+        top10_enriched = attach_reasons_to_rankings(top10, reasons_df)
+        reasons_top = reasons_df[reasons_df["муниципалитет"].isin(top_munis)].copy()
+
+        muni_summaries = build_municipality_summaries(top10_enriched, reasons_top, cfg)
+        reasons_top = attach_summary_text_from_paragraphs(reasons_top, muni_summaries)
+        top3_summaries = build_top3_summaries(top3_enriched, reasons_top, cfg)
+
+        summary_cols = reasons_top[["муниципалитет", "summary_text"]]
+        reasons_df = reasons_df.drop(columns=["summary_text"], errors="ignore").merge(
+            summary_cols, on="муниципалитет", how="left",
+        )
+        top3_enriched = top3_enriched.drop(columns=["summary_text"], errors="ignore").merge(
+            summary_cols, on="муниципалитет", how="left",
+        )
+        top10_enriched = top10_enriched.drop(columns=["summary_text"], errors="ignore").merge(
+            summary_cols, on="муниципалитет", how="left",
+        )
+
+        top3_for_llm = _attach_summary_paragraphs(top3_enriched, top3_summaries)
+        top10_for_llm = _attach_summary_paragraphs(top10_enriched, muni_summaries)
+
         summary_text = build_executive_summary(
             labeled.loc[labeled["is_problem"]],
-            top3,
-            top10,
-            reasons_enriched,
+            top3_for_llm,
+            top10_for_llm,
+            reasons_top,
             cfg,
+            top_all=top_all,
         )
         save_summary_artifacts(
             cfg.output_dir,
             summary_text,
+            top3_summaries,
             muni_summaries,
             cfg,
             meta={
@@ -103,17 +135,30 @@ def run_pipeline(
                 "municipality_count": n_muni,
             },
         )
-        reasons_df = reasons_enriched
-        step("summary", "done", f"справка {len(summary_text)} симв., {len(muni_summaries)} МО")
+        top3 = top3_for_llm
+        top10 = top10_for_llm
+        step(
+            "summary",
+            "done",
+            f"справка {len(summary_text)} симв.; Top-3: {len(top3_summaries)}, Top-10: {len(muni_summaries)}",
+        )
     else:
         step("summary", "done", "пропуск")
-
-    top3 = attach_reasons_to_rankings(top3, reasons_df)
-    top10 = attach_reasons_to_rankings(top10, reasons_df)
+        top3 = attach_reasons_to_rankings(top3, reasons_df)
+        top10 = attach_reasons_to_rankings(top10, reasons_df)
 
     step("report", "running", "Excel и JSON")
     report_path = write_excel_report(
-        cfg, top_all, top10, top3, topics_df, groups_df, reasons_df, labeled
+        cfg,
+        top_all,
+        top10,
+        top3,
+        topics_df,
+        groups_df,
+        reasons_df,
+        labeled,
+        muni_summaries=muni_summaries if not muni_summaries.empty else None,
+        top3_summaries=top3_summaries if not top3_summaries.empty else None,
     )
     stats = {
         "rows_processed": len(labeled),
@@ -132,8 +177,18 @@ def run_pipeline(
         reasons_df,
         summary_text,
         stats,
+        severity_breakdown=build_severity_breakdown(labeled),
     )
-    step("report", "done", report_path.name)
+    report_detail = report_path.name
+    if cfg.update_demo_snapshot:
+        try:
+            from app.demo_snapshot import build_demo_snapshot
+
+            demo_out = build_demo_snapshot(report_path=cfg.output_dir / "report.json")
+            report_detail = f"{report_path.name}; demo → {demo_out.name}"
+        except Exception as exc:
+            report_detail = f"{report_path.name}; demo не обновлён: {exc}"
+    step("report", "done", report_detail)
 
     elapsed = round(time.perf_counter() - t0, 1)
     return PipelineResult(

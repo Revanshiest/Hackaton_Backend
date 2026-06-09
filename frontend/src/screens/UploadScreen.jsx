@@ -129,7 +129,7 @@ export default function UploadScreen({ onUploadStarted, onDemoStart, dark, onTog
               className="text-xs transition-colors hover:text-red-500"
               style={{ color: 'var(--muted)' }}
             >
-              Пропустить — demo режим
+              Пропустить — demo (снимок данных)
             </button>
           )}
         </div>

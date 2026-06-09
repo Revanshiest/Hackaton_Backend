@@ -71,4 +71,8 @@ export const api = {
   excelUrl(taskId) {
     return `${BASE}/api/v1/jobs/${encodeURIComponent(taskId)}/excel`
   },
+
+  excelTop10Url(taskId) {
+    return `${BASE}/api/v1/jobs/${encodeURIComponent(taskId)}/excel/top10`
+  },
 }

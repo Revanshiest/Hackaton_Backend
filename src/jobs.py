@@ -131,6 +131,7 @@ def run_job(task_id: str, input_path: Path, options: PipelineOptions) -> None:
             skip_summary=options.skip_summary,
             nrows=options.nrows,
             ollama_model=options.model or OLLAMA_MODEL,
+            llm_fast_mode=options.llm_fast_mode,
         )
         result = run_pipeline(cfg, on_progress=on_progress)
         elapsed = round(time.perf_counter() - started, 1)
@@ -182,6 +183,15 @@ def get_report(task_id: str) -> dict:
     if not path.exists():
         raise FileNotFoundError("report.json")
     return load_report_json(path)
+
+
+def get_labeled_df(task_id: str):
+    cache_path = job_path(task_id) / "cache" / "labeled.parquet"
+    if not cache_path.exists():
+        return None
+    import pandas as pd
+
+    return pd.read_parquet(cache_path)
 
 
 def generate_district_report(

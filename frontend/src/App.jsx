@@ -262,6 +262,8 @@ export default function App() {
 
           taskId={isDemo ? null : taskId}
 
+          isDemo={isDemo}
+
           onBack={handleBack}
 
           dark={dark}

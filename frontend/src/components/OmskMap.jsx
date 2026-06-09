@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
-import { MapContainer, TileLayer, GeoJSON, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, GeoJSON, CircleMarker, Tooltip, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import geojsonData from '../data/omsk_boundaries.json'
+import { matchDistrict, findCityMarkerDistrict } from '../utils/matchDistrict'
 
 const BOUNDS = L.latLngBounds([[52.5, 68.0], [59.5, 78.0]])
 const MIN_ZOOM = 6.5
@@ -32,21 +33,11 @@ const scoreToColor = (score) => {
   return '#991b1b'
 }
 
-// Мягкое сопоставление: ищем district чьё имя входит в OSM name или наоборот
-function matchDistrict(osmName, districts) {
-  if (!osmName) return null
-  const n = osmName.toLowerCase()
-  const exact = districts.find(d => {
-    const dn = d.name.toLowerCase()
-      .replace(' округ', '').replace(' район', '').replace('ский', '').replace('ской', '')
-    return n.includes(dn) || dn.includes(n.replace(' район', '').replace(' округ', ''))
-  })
-  if (exact) return exact
-  if (n.includes('омск')) return districts.find(d => d.name.toLowerCase().includes('омский')) || null
-  return null
-}
+// Сопоставление OSM ↔ муниципалитет из API (см. utils/matchDistrict.js)
 
 export default function OmskMap({ districts, onDistrictClick, showTiles = true }) {
+  const cityMarker = findCityMarkerDistrict(districts)
+  const mapKey = districts.map((d) => `${d.id}:${d.score ?? 'x'}`).join('|')
 
   const styleFeature = (feature) => {
     const district = matchDistrict(feature.properties?.name, districts)
@@ -64,7 +55,7 @@ export default function OmskMap({ districts, onDistrictClick, showTiles = true }
     const district = matchDistrict(osmName, districts)
     const label = district
       ? `${district.name} · скор ${district.score}`
-      : osmName
+      : `${osmName} · нет данных`
 
     layer.bindTooltip(label, { sticky: true })
 
@@ -96,11 +87,31 @@ export default function OmskMap({ districts, onDistrictClick, showTiles = true }
       )}
 
       <GeoJSON
-        key="static"
+        key={mapKey || 'empty'}
         data={geojsonData}
         style={styleFeature}
         onEachFeature={onEachFeature}
       />
+
+      {cityMarker && (
+        <CircleMarker
+          center={[cityMarker.lat, cityMarker.lng]}
+          radius={14}
+          pathOptions={{
+            color: '#7f1d1d',
+            weight: 2,
+            fillColor: scoreToColor(cityMarker.district.score),
+            fillOpacity: 0.85,
+          }}
+          eventHandlers={{
+            click: () => onDistrictClick?.(cityMarker.district),
+          }}
+        >
+          <Tooltip sticky>
+            {cityMarker.district.name} · скор {cityMarker.district.score}
+          </Tooltip>
+        </CircleMarker>
+      )}
     </MapContainer>
   )
 }

@@ -10,6 +10,21 @@ from app.config.settings import PipelineSettings
 # Экспоненциальные веса тяжести классов 0–4
 SEVERITY_WEIGHTS: dict[int, int] = {0: 0, 1: 1, 2: 5, 3: 20, 4: 100}
 
+_INVALID_MUNI = {"", "nan", "none", "<na>"}
+
+
+def _is_valid_municipality(name) -> bool:
+    if name is None or (isinstance(name, float) and np.isnan(name)):
+        return False
+    return str(name).strip().lower() not in _INVALID_MUNI
+
+
+def _filter_valid_municipalities(df: pd.DataFrame, district_col: str) -> pd.DataFrame:
+    if district_col not in df.columns:
+        return df
+    mask = df[district_col].map(_is_valid_municipality)
+    return df.loc[mask].copy()
+
 
 def _rating_score(labels: list[int]) -> float:
     raw_score = sum(SEVERITY_WEIGHTS.get(int(label), 0) for label in labels)
@@ -17,10 +32,14 @@ def _rating_score(labels: list[int]) -> float:
 
 
 def _health_score(rating_score: float, max_rating: float) -> int:
-    """100 — нет проблем, 5 — критично (худший район в срезе)."""
-    if max_rating <= 0:
+    """100 — нет проблем, 5 — критично (худший район в срезе).
+
+    Логарифмическая нормализация: один крупный центр (напр. Омск г.о.)
+    не сжимает все остальные муниципалитеты в диапазон 96–99.
+    """
+    if max_rating <= 0 or rating_score <= 0:
         return 100
-    ratio = min(1.0, rating_score / max_rating)
+    ratio = min(1.0, np.log1p(rating_score) / np.log1p(max_rating))
     return max(5, int(100 - ratio * 95))
 
 
@@ -33,11 +52,16 @@ def calculate_districts_health(
     Рассчитывает индекс благополучия (Health Score) для всех районов.
     100 — идеальное состояние, 5 — критическая ситуация (ЧС).
     Штраф нормируется на log(1 + N), чтобы крупные районы не доминировали только объёмом.
+    Итоговый health_score переводится в шкалу 5–100 через log(1 + rating).
     """
     if district_col not in df.columns:
         raise ValueError(f"Колонка {district_col!r} не найдена")
     if pred_col not in df.columns:
         raise ValueError(f"Колонка {pred_col!r} не найдена")
+
+    df = _filter_valid_municipalities(df, district_col)
+    if df.empty:
+        return pd.DataFrame()
 
     district_scores: dict[str, float] = {}
     for district, group in df.groupby(district_col, dropna=False):
@@ -112,6 +136,10 @@ def build_municipality_rankings(
     )
     agg = health_df.merge(extra, on="муниципалитет", how="left")
     agg["problem_share"] = (agg["problem_count"] / agg["total_incidents"].clip(lower=1)).round(4)
+    agg = agg.loc[agg["total_incidents"] > 0].reset_index(drop=True)
+    agg["rank"] = range(1, len(agg) + 1)
+    agg["district_id"] = agg["rank"]
+    agg["score"] = agg["health_score"]
 
     top_n = agg.head(cfg.top_municipalities).copy()
     top_hot = agg.head(cfg.top_hotspots).copy()

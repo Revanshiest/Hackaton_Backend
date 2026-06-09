@@ -20,6 +20,7 @@ class DistrictShortInfo(BaseModel):
     district_name: str = Field(..., description="Название района", example="Центральный АО")
     score: int = Field(..., description="Скор района (от 0 до 100, чем выше, тем лучше)", example=87)
     main_problem: str = Field(..., description="Главная проблема", example="ЖКХ")
+    analytical_summary: Optional[str] = Field(None, description="Аналитический вывод по МО")
     center_coordinates: Optional[List[float]] = Field(None, description="Координаты центра района [широта, долгота]", example=[54.989347, 73.368221])
 
 class ThemeCount(BaseModel):
@@ -35,6 +36,7 @@ class CriticalDistrictCard(BaseModel):
     score: int = Field(..., description="Скор района", example=22)
     top_themes: List[ThemeCount] = Field(..., description="Топ проблем с количеством обращений")
     sample_incident_text: str = Field(..., description="Цитата/пример обращения", example="Мост в аварийном состоянии, проезд опасен")
+    analytical_summary: Optional[str] = Field(None, description="Развёрнутый аналитический вывод по критическому МО")
     total_incidents: int = Field(..., description="Всего обращений по району", example=702)
 
 class DashboardResponse(BaseModel):
@@ -52,6 +54,22 @@ class ThematicGroupStat(BaseModel):
     count: int = Field(..., description="Количество обращений", example=345)
     percentage: float = Field(..., description="Процент от общего числа", example=39.0)
 
+
+class SeverityStat(BaseModel):
+    """Распределение обращений по классу тяжести (0–4)"""
+    severity: int = Field(..., description="Класс тяжести", example=2)
+    label: str = Field(..., description="Название класса", example="Средняя тяжесть")
+    count: int = Field(..., description="Количество обращений", example=45)
+    percentage: float = Field(..., description="Процент от общего числа", example=21.4)
+
+
+class IncidentExample(BaseModel):
+    """Пример обращения с классом тяжести"""
+    text: str = Field(..., description="Текст обращения")
+    severity: int = Field(..., description="Класс тяжести ONNX (1–4)", example=3)
+    label: str = Field(..., description="Название класса", example="Высокая")
+
+
 class DistrictReport(BaseModel):
     """Подробный отчёт по району"""
     district_id: int = Field(..., description="ID района", example=1)
@@ -64,7 +82,14 @@ class DistrictReport(BaseModel):
     start_date: Optional[datetime] = Field(None, description="Начало периода")
     end_date: Optional[datetime] = Field(None, description="Конец периода")
     themes_stat: List[ThematicGroupStat] = Field(..., description="Статистика по категориям (для графиков)")
-    incident_examples: List[str] = Field(..., description="Примеры обращений", example=["В паводок район полностью отрезан от области.", "Школьники живут в интернате из-за отсутствия транспорта."])
+    severity_stat: List[SeverityStat] = Field(
+        default_factory=list,
+        description="Распределение обращений по классу тяжести ONNX (0–4)",
+    )
+    incident_examples: List[IncidentExample] = Field(
+        default_factory=list,
+        description="Примеры проблемных обращений (severity > 0)",
+    )
 
 class DistrictReportResponse(BaseModel):
     """Схема ответа при запросе отчёта по району"""
@@ -119,3 +144,7 @@ class PipelineOptions(BaseModel):
     batch_size: int = Field(16, description="Размер батча ONNX")
     nrows: int | None = Field(None, description="Ограничить число строк (для теста)")
     model: str | None = Field(None, description="Модель Ollama (по умолчанию gemma4:e2b)")
+    llm_fast_mode: bool = Field(
+        True,
+        description="Короткие ИИ-сводки (параллельно по Top-10/Top-3) + итоговая справка; false — более развёрнутый текст",
+    )

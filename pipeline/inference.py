@@ -63,13 +63,28 @@ def _pack_result(labels: np.ndarray, confidences: np.ndarray) -> PredictionResul
     )
 
 
+def _ensure_cuda_dlls() -> None:
+    """Загружает CUDA/cuDNN DLL (Windows + pip nvidia-* пакеты)."""
+    try:
+        import onnxruntime as ort
+
+        preload = getattr(ort, "preload_dlls", None)
+        if callable(preload):
+            preload(cuda=True, cudnn=True)
+    except Exception as exc:
+        print(f"ONNX preload_dlls: {exc}", flush=True)
+
+
 def resolve_onnx_providers(device: str | None = None) -> list[str]:
     import os
 
     import onnxruntime as ort
 
-    available = ort.get_available_providers()
     prefer_cpu = (device or os.environ.get("ONNX_DEVICE", "")).lower() == "cpu"
+    if not prefer_cpu:
+        _ensure_cuda_dlls()
+
+    available = ort.get_available_providers()
     if not prefer_cpu and "CUDAExecutionProvider" in available:
         return ["CUDAExecutionProvider", "CPUExecutionProvider"]
     return ["CPUExecutionProvider"]

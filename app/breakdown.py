@@ -1,4 +1,4 @@
-"""Агрегация по темам и группам, формирование причин для Top-муниципалитетов."""
+"""Агрегация по темам и группам, формирование причин по муниципалитетам."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def _agg_by_dimension(
 
 def build_topic_group_breakdown(
     df: pd.DataFrame,
-    top_municipalities: list[str],
+    municipalities: list[str],
     cfg: PipelineSettings,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     work = df.copy()
@@ -51,8 +51,7 @@ def build_topic_group_breakdown(
     groups = _agg_by_dimension(problems, "группа", "группа")
 
     reasons_rows = []
-    top_set = set(top_municipalities)
-    for muni in top_municipalities:
+    for muni in municipalities:
         t_sub = topics[topics["муниципалитет"] == muni].head(5) if not topics.empty else pd.DataFrame()
         g_sub = groups[groups["муниципалитет"] == muni].head(5) if not groups.empty else pd.DataFrame()
 
@@ -62,7 +61,7 @@ def build_topic_group_breakdown(
         key_groups = "; ".join(
             f"{r['группа']} ({int(r['count'])})" for _, r in g_sub.iterrows()
         )
-        texts = sample_problem_texts(problems, muni, n=cfg.examples_per_muni)
+        examples = sample_problem_texts(problems, muni, n=cfg.examples_per_muni)
         reasons_rows.append(
             {
                 "муниципалитет": muni,
@@ -70,17 +69,12 @@ def build_topic_group_breakdown(
                 "ключевые_группы": key_groups,
                 "топ_тема": t_sub.iloc[0]["тема"] if len(t_sub) else "",
                 "топ_группа": g_sub.iloc[0]["группа"] if len(g_sub) else "",
-                "примеры_текстов": " || ".join(texts),
+                "примеры_обращений": examples,
+                "примеры_текстов": " || ".join(e["text"] for e in examples),
             }
         )
 
     reasons_df = pd.DataFrame(reasons_rows)
-
-    if top_set and not topics.empty:
-        topics = topics[topics["муниципалитет"].isin(top_set)]
-    if top_set and not groups.empty:
-        groups = groups[groups["муниципалитет"].isin(top_set)]
-
     return topics, groups, reasons_df
 
 

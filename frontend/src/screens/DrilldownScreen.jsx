@@ -16,6 +16,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import ThemeToggle from '../components/ThemeToggle'
 import { api } from '../api/client'
 import { districtFromReport } from '../api/adapters'
+import { getDemoDistrictReport } from '../demo'
 
 const CATEGORY_ICONS = {
   ЖКХ: Home,
@@ -26,6 +27,83 @@ const CATEGORY_ICONS = {
   Благоустройство: TreeDeciduous,
 }
 const scoreColor = (s) => (s >= 75 ? '#22c55e' : s >= 60 ? '#84cc16' : s >= 50 ? '#f97316' : s >= 35 ? '#ef4444' : '#991b1b')
+
+const SEVERITY_COLORS = {
+  0: '#94a3b8',
+  1: '#84cc16',
+  2: '#eab308',
+  3: '#f97316',
+  4: '#dc2626',
+}
+
+const formatAppealText = (text) =>
+  String(text)
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/^['"«»]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const SeverityTooltip = ({ active, payload }) => {
+  if (!active || !payload?.length) return null
+  const row = payload[0].payload
+  return (
+    <div
+      className="rounded-lg px-3 py-2 shadow-lg text-sm"
+      style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)' }}
+    >
+      {row.label}: <strong>{row.count}</strong> ({row.percentage}%)
+    </div>
+  )
+}
+
+function splitCategoryLabel(text, maxChars = 34) {
+  const value = String(text || '').trim()
+  if (value.length <= maxChars) return [value]
+  const words = value.split(/\s+/)
+  const lines = []
+  let line = ''
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word
+    if (next.length > maxChars && line) {
+      lines.push(line)
+      line = word
+    } else {
+      line = next
+    }
+  }
+  if (line) lines.push(line)
+  if (lines.length > 2) {
+    const merged = `${lines[0]} ${lines[1]}`
+    return merged.length > maxChars + 6
+      ? [`${merged.slice(0, maxChars - 1)}…`]
+      : [lines[0], `${lines[1].slice(0, maxChars - 1)}…`]
+  }
+  return lines
+}
+
+function CategoryYAxisTick({ x, y, payload }) {
+  const lines = splitCategoryLabel(payload?.value)
+  return (
+    <g transform={`translate(${x},${y})`}>
+      {lines.map((line, i) => (
+        <text
+          key={i}
+          x={0}
+          y={0}
+          dy={i * 11 + (lines.length === 1 ? 4 : -2)}
+          textAnchor="end"
+          fill="var(--text-2)"
+          fontSize={10}
+        >
+          {line}
+        </text>
+      ))}
+    </g>
+  )
+}
+
+const chartBarHeight = (count) => Math.max(220, count * 46 + 32)
 
 const CustomTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null
@@ -39,7 +117,7 @@ const CustomTooltip = ({ active, payload }) => {
   )
 }
 
-export default function DrilldownScreen({ district: initialDistrict, taskId, onBack, dark, onToggleTheme }) {
+export default function DrilldownScreen({ district: initialDistrict, taskId, isDemo, onBack, dark, onToggleTheme }) {
   const [district, setDistrict] = useState(initialDistrict)
   const [loading, setLoading] = useState(!!taskId)
   const [generating, setGenerating] = useState(false)
@@ -49,7 +127,11 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, onB
   }, [initialDistrict])
 
   useEffect(() => {
-    if (!taskId) {
+    if (isDemo || !taskId) {
+      const snap = getDemoDistrictReport(initialDistrict.id)
+      if (snap?.data) {
+        setDistrict((prev) => ({ ...prev, ...districtFromReport(snap.data) }))
+      }
       setLoading(false)
       return
     }
@@ -68,7 +150,7 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, onB
     })()
 
     return () => { cancelled = true }
-  }, [taskId, initialDistrict.id])
+  }, [taskId, isDemo, initialDistrict.id])
 
   const total =
     district.totalIncidents
@@ -78,7 +160,7 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, onB
 
   const handleDownload = () => {
     if (taskId) {
-      window.open(api.excelUrl(taskId), '_blank')
+      window.open(api.excelTop10Url(taskId), '_blank')
       return
     }
     const lines = [
@@ -94,7 +176,7 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, onB
       district.summary,
       '',
       'Примеры:',
-      ...district.examples.map((e, i) => `  ${i + 1}. ${e}`),
+      ...district.examples.map((e, i) => `  ${i + 1}. [${e.label || e.severity}] ${e.text}`),
     ]
     const url = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' }))
     Object.assign(document.createElement('a'), {
@@ -178,7 +260,7 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, onB
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
             style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-2)' }}
           >
-            <Download className="w-3.5 h-3.5" /> {taskId ? 'Excel' : 'Скачать TXT'}
+            <Download className="w-3.5 h-3.5" /> {taskId && !isDemo ? 'Excel Top-10' : 'Скачать TXT'}
           </button>
           <ThemeToggle dark={dark} onToggle={onToggleTheme} />
         </div>
@@ -189,14 +271,20 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, onB
           <div className="p-5 shadow-sm" style={card}>
             <h2 className="text-sm font-semibold mb-5" style={{ color: 'var(--text)' }}>Обращения по категориям</h2>
             {district.problems.length ? (
-              <ResponsiveContainer width="100%" height={180}>
-                <BarChart data={district.problems} layout="vertical" barSize={12}>
+              <ResponsiveContainer width="100%" height={chartBarHeight(district.problems.length)}>
+                <BarChart
+                  data={district.problems}
+                  layout="vertical"
+                  barSize={14}
+                  margin={{ top: 4, right: 12, left: 4, bottom: 4 }}
+                >
                   <XAxis type="number" tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
                   <YAxis
                     dataKey="category"
                     type="category"
-                    tick={{ fill: 'var(--text-2)', fontSize: 12 }}
-                    width={115}
+                    width={210}
+                    tick={<CategoryYAxisTick />}
+                    interval={0}
                     axisLine={false}
                     tickLine={false}
                   />
@@ -223,8 +311,8 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, onB
                     <div key={p.category} className="flex items-center gap-3">
                       <Icon className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--muted)' }} />
                       <div className="flex-1">
-                        <div className="flex justify-between text-xs mb-1.5">
-                          <span className="font-medium" style={{ color: 'var(--text-2)' }}>{p.category}</span>
+                        <div className="flex justify-between text-xs mb-1.5 gap-2">
+                          <span className="font-medium leading-snug" style={{ color: 'var(--text-2)' }}>{p.category}</span>
                           <span style={{ color: 'var(--muted)' }}>
                             {p.count} · {Math.round((p.count / total) * 100)}%
                           </span>
@@ -251,21 +339,37 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, onB
           <div className="p-5 shadow-sm" style={card}>
             <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--text)' }}>Примеры обращений</h2>
             <div className="space-y-3">
-              {(district.examples.length ? district.examples : ['Нет примеров']).map((text, i) => (
-                <div
-                  key={i}
-                  className="flex gap-3 p-3.5 rounded-xl"
-                  style={{ background: 'var(--bg-sub)', border: '1px solid var(--border)' }}
-                >
+              {(district.examples.length ? district.examples : [{ text: 'Нет примеров', severity: 0, label: '' }]).map((item, i) => {
+                const text = formatAppealText(typeof item === 'string' ? item : item.text)
+                const severity = typeof item === 'string' ? 1 : item.severity
+                const label = typeof item === 'string' ? '' : item.label
+                const badgeColor = SEVERITY_COLORS[severity] ?? '#94a3b8'
+                return (
                   <div
-                    className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5"
-                    style={{ background: 'var(--border)', color: 'var(--text-2)' }}
+                    key={i}
+                    className="flex gap-3 p-3.5 rounded-xl"
+                    style={{ background: 'var(--bg-sub)', border: '1px solid var(--border)' }}
                   >
-                    {i + 1}
+                    <div
+                      className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5"
+                      style={{ background: 'var(--border)', color: 'var(--text-2)' }}
+                    >
+                      {i + 1}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      {severity > 0 && label && (
+                        <span
+                          className="inline-block text-xs font-semibold px-2 py-0.5 rounded-full mb-1.5"
+                          style={{ background: `${badgeColor}22`, color: badgeColor }}
+                        >
+                          {label} · {severity}
+                        </span>
+                      )}
+                      <p className="text-sm leading-relaxed" style={{ color: 'var(--text-2)' }}>{text}</p>
+                    </div>
                   </div>
-                  <p className="text-sm leading-relaxed" style={{ color: 'var(--text-2)' }}>{text}</p>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
 
@@ -283,10 +387,47 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, onB
               </div>
             ))}
           </div>
+
+          {(district.severityStat?.length > 0) && (
+            <div className="p-5 shadow-sm" style={card}>
+              <h2 className="text-sm font-semibold mb-1" style={{ color: 'var(--text)' }}>
+                Распределение по тяжести
+              </h2>
+              <p className="text-xs mb-4" style={{ color: 'var(--muted)' }}>
+                Классы ONNX: 0 — не инцидент … 4 — критическая
+              </p>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={district.severityStat} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+                  <XAxis
+                    dataKey="label"
+                    tick={{ fill: 'var(--muted)', fontSize: 10 }}
+                    axisLine={false}
+                    tickLine={false}
+                    interval={0}
+                    angle={-12}
+                    textAnchor="end"
+                    height={48}
+                  />
+                  <YAxis
+                    allowDecimals={false}
+                    tick={{ fill: 'var(--muted)', fontSize: 11 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip content={<SeverityTooltip />} cursor={{ fill: 'var(--bg-sub)' }} />
+                  <Bar dataKey="count" radius={[6, 6, 0, 0]} maxBarSize={48}>
+                    {district.severityStat.map((row) => (
+                      <Cell key={row.severity} fill={SEVERITY_COLORS[row.severity] ?? '#94a3b8'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
       </div>
 
-      {district.summary && (
+      {district.summary && (!taskId || isDemo || !loading) && (
         <div
           className="mx-4 lg:mx-5 mb-5 p-5 rounded-2xl flex gap-4 anim-up"
           style={{

@@ -9,7 +9,7 @@ export function districtFromShort(info) {
     coords: info.center_coordinates ?? null,
     problems: [],
     examples: [],
-    summary: '',
+    summary: info.analytical_summary || '',
   }
 }
 
@@ -26,7 +26,7 @@ export function districtFromCritical(card) {
     coords: null,
     problems,
     examples: card.sample_incident_text ? [card.sample_incident_text] : [],
-    summary: card.sample_incident_text || '',
+    summary: card.analytical_summary || '',
     criticalityStatus: card.criticality_status,
     totalIncidents: card.total_incidents,
   }
@@ -43,7 +43,15 @@ export function districtFromReport(data) {
       category: t.group_name,
       count: t.count,
     })),
-    examples: data.incident_examples || [],
+    severityStat: (data.severity_stat || []).map((s) => ({
+      severity: s.severity,
+      label: s.label,
+      count: s.count,
+      percentage: s.percentage,
+    })),
+    examples: (data.incident_examples || [])
+      .map((e) => (typeof e === 'string' ? { text: e, severity: 1, label: 'Низкая' } : e))
+      .filter((e) => e.severity > 0),
     totalIncidents: data.total_incidents,
   }
 }

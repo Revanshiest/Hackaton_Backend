@@ -40,11 +40,19 @@ export default function DistrictCard({ district, rank, onClick }) {
         ))}
       </div>
 
-      <div className="pt-3 mb-3" style={{ borderTop: '1px solid var(--border)' }}>
-        <p className="text-xs leading-relaxed line-clamp-2 italic" style={{ color: 'var(--text-2)' }}>
-          «{(district.examples || [])[0] || '—'}»
-        </p>
-      </div>
+      {district.summary ? (
+        <div className="pt-3 mb-3" style={{ borderTop: '1px solid var(--border)' }}>
+          <p className="text-xs leading-relaxed line-clamp-4" style={{ color: 'var(--text-2)' }}>
+            {district.summary}
+          </p>
+        </div>
+      ) : (
+        <div className="pt-3 mb-3" style={{ borderTop: '1px solid var(--border)' }}>
+          <p className="text-xs leading-relaxed line-clamp-2 italic" style={{ color: 'var(--text-2)' }}>
+            «{(district.examples || [])[0] || '—'}»
+          </p>
+        </div>
+      )}
 
       <div className="flex items-center justify-between text-xs" style={{ color: 'var(--muted)' }}>
         <span>{total} обращений</span>

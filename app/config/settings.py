@@ -18,3 +18,6 @@ class PipelineSettings:
     ollama_base_url: str = OLLAMA_BASE_URL
     skip_summary: bool = False
     nrows: int | None = None
+    update_demo_snapshot: bool = True
+    llm_fast_mode: bool = True
+    llm_workers: int = 4
