@@ -1,14 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
   Download,
   FileType,
-  Home,
+  Tags,
   Route,
   Leaf,
   Bus,
   Lightbulb,
   TreeDeciduous,
+  Building2,
   BotMessageSquare,
   FileSearch,
   Loader2,
@@ -23,7 +24,7 @@ import { districtToReportPayload } from '../utils/districtReportPayload'
 import { scoreColor } from '../utils/scoreColor'
 
 const CATEGORY_ICONS = {
-  ЖКХ: Home,
+  ЖКХ: Building2,
   Дороги: Route,
   Экология: Leaf,
   Транспорт: Bus,
@@ -60,62 +61,37 @@ const SeverityTooltip = ({ active, payload }) => {
   )
 }
 
-const CATEGORY_AXIS_WIDTH_LG = 300
-const CATEGORY_ROW_HEIGHT = 46
-const CATEGORY_CHART_MAX_HEIGHT = 380
-
-function categoryAxisWidthForViewport() {
-  if (typeof window === 'undefined') return CATEGORY_AXIS_WIDTH_LG
-  const w = window.innerWidth
-  if (w < 640) return 168
-  if (w < 1024) return 220
-  return CATEGORY_AXIS_WIDTH_LG
-}
-
-function CategoryYAxisTick({ x, y, payload, axisWidth = CATEGORY_AXIS_WIDTH_LG }) {
-  const label = String(payload?.value || '').trim()
-  const boxWidth = axisWidth - 12
-  const boxHeight = CATEGORY_ROW_HEIGHT - 8
-  return (
-    <foreignObject x={x - boxWidth} y={y - boxHeight / 2} width={boxWidth} height={boxHeight}>
-      <div
-        xmlns="http://www.w3.org/1999/xhtml"
-        className="flex h-full items-center justify-end text-right text-[11px] sm:text-xs leading-snug"
-        style={{ color: 'var(--text-2)', wordBreak: 'break-word', overflow: 'hidden' }}
-        title={label}
-      >
-        {label}
-      </div>
-    </foreignObject>
-  )
-}
-
-const categoryChartHeight = (count) => Math.max(120, count * CATEGORY_ROW_HEIGHT + 16)
-
-const CustomTooltip = ({ active, payload }) => {
-  if (!active || !payload?.length) return null
-  return (
-    <div
-      className="rounded-lg px-3 py-2 shadow-lg text-sm"
-      style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)' }}
-    >
-      {payload[0].payload.category}: <strong>{payload[0].value}</strong>
-    </div>
-  )
-}
-
 export default function DrilldownScreen({ district: initialDistrict, taskId, isDemo, onBack, dark, onToggleTheme }) {
   const [district, setDistrict] = useState(initialDistrict)
   const [loading, setLoading] = useState(!!taskId)
   const [generating, setGenerating] = useState(false)
   const [exportingPdf, setExportingPdf] = useState(false)
-  const [categoryAxisWidth, setCategoryAxisWidth] = useState(categoryAxisWidthForViewport)
+  const rightColRef = useRef(null)
+  const [rightColHeight, setRightColHeight] = useState(null)
 
   useEffect(() => {
-    const onResize = () => setCategoryAxisWidth(categoryAxisWidthForViewport())
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
+    const el = rightColRef.current
+    if (!el) return undefined
+
+    const mq = window.matchMedia('(min-width: 1024px)')
+    const syncHeight = () => {
+      if (mq.matches) {
+        setRightColHeight(Math.round(el.getBoundingClientRect().height))
+      } else {
+        setRightColHeight(null)
+      }
+    }
+
+    const ro = new ResizeObserver(syncHeight)
+    ro.observe(el)
+    mq.addEventListener('change', syncHeight)
+    syncHeight()
+
+    return () => {
+      ro.disconnect()
+      mq.removeEventListener('change', syncHeight)
+    }
+  }, [district, loading])
 
   useEffect(() => {
     setDistrict(initialDistrict)
@@ -152,6 +128,9 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
     ?? district.problems.reduce((s, p) => s + p.count, 0)
   const color = scoreColor(district.score)
   const max = district.problems[0]?.count || 1
+  const categoriesListMaxHeightClass = district.summary
+    ? 'max-h-[min(calc(100vh-19rem),720px)]'
+    : 'max-h-[min(calc(100vh-12rem),780px)]'
 
   const handlePdfExport = async () => {
     if (exportingPdf) return
@@ -314,71 +293,46 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
         </div>
       )}
 
-      <div className="flex-1 p-3 sm:p-4 lg:p-5 grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 anim-up">
-        <div className="space-y-4">
-          <div className="p-5 shadow-sm" style={card}>
-            <h2 className="text-base font-semibold mb-5" style={{ color: 'var(--text)' }}>Обращения по категориям</h2>
+      <div className="flex-1 p-3 sm:p-4 lg:p-5 grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 anim-up lg:items-start">
+        <div className="min-h-0">
+          <div
+            className="p-5 shadow-sm flex flex-col min-h-0"
+            style={{
+              ...card,
+              ...(rightColHeight ? { height: rightColHeight, maxHeight: rightColHeight } : null),
+            }}
+          >
+            <h2 className="text-base font-semibold mb-4 flex-shrink-0" style={{ color: 'var(--text)' }}>Доли категорий</h2>
             {district.problems.length ? (
               <div
-                className="overflow-y-auto overflow-x-hidden pr-1 -mr-1"
-                style={{ maxHeight: CATEGORY_CHART_MAX_HEIGHT }}
-              >
-                <ResponsiveContainer width="100%" height={categoryChartHeight(district.problems.length)}>
-                  <BarChart
-                    data={district.problems}
-                    layout="vertical"
-                    barSize={14}
-                    margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
-                  >
-                    <XAxis type="number" tick={{ fill: 'var(--muted)', fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <YAxis
-                      dataKey="category"
-                      type="category"
-                      width={categoryAxisWidth}
-                      tick={<CategoryYAxisTick axisWidth={categoryAxisWidth} />}
-                      interval={0}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <Tooltip content={<CustomTooltip />} cursor={{ fill: `${color}08` }} />
-                    <Bar dataKey="count" radius={[0, 6, 6, 0]}>
-                      {district.problems.map((_, i) => (
-                        <Cell key={i} fill={i === 0 ? '#dc2626' : i === 1 ? '#ea580c' : '#94a3b8'} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <p className="text-sm" style={{ color: 'var(--muted)' }}>Нет данных по категориям</p>
-            )}
-          </div>
-
-          {district.problems.length > 0 && (
-            <div className="p-5 shadow-sm" style={card}>
-              <h2 className="text-base font-semibold mb-4" style={{ color: 'var(--text)' }}>Доли категорий</h2>
-              <div
-                className="space-y-4 overflow-y-auto overflow-x-hidden pr-1 -mr-1"
-                style={{ maxHeight: CATEGORY_CHART_MAX_HEIGHT }}
+                className={`flex-1 space-y-3.5 overflow-y-auto overflow-x-hidden pr-1 -mr-1 min-h-0 ${
+                  rightColHeight ? '' : categoriesListMaxHeightClass
+                }`}
               >
                 {district.problems.map((p, i) => {
-                  const Icon = CATEGORY_ICONS[p.category] || Home
+                  const Icon = CATEGORY_ICONS[p.category] || Tags
+                  const barColor = i === 0 ? '#dc2626' : i === 1 ? '#ea580c' : '#94a3b8'
                   return (
-                    <div key={p.category} className="flex items-center gap-3">
-                      <Icon className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--muted)' }} />
-                      <div className="flex-1">
+                    <div key={p.category} className="flex items-start gap-3">
+                      <div
+                        className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 mt-0.5"
+                        style={{ background: `${barColor}18`, color: barColor }}
+                      >
+                        <Icon className="w-4 h-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
                         <div className="flex justify-between text-sm mb-2 gap-3">
                           <span className="font-medium leading-snug" style={{ color: 'var(--text-2)' }}>{p.category}</span>
-                          <span className="text-sm flex-shrink-0" style={{ color: 'var(--muted)' }}>
+                          <span className="text-sm flex-shrink-0 tabular-nums" style={{ color: 'var(--muted)' }}>
                             {p.count} · {Math.round((p.count / total) * 100)}%
                           </span>
                         </div>
-                        <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-sub)' }}>
+                        <div className="h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-sub)' }}>
                           <div
                             className="h-full rounded-full transition-all duration-700"
                             style={{
                               width: `${(p.count / max) * 100}%`,
-                              background: i === 0 ? '#dc2626' : i === 1 ? '#ea580c' : '#94a3b8',
+                              background: barColor,
                             }}
                           />
                         </div>
@@ -387,11 +341,13 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
                   )
                 })}
               </div>
-            </div>
-          )}
+            ) : (
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>Нет данных по категориям</p>
+            )}
+          </div>
         </div>
 
-        <div className="space-y-4">
+        <div ref={rightColRef} className="space-y-4">
           <div className="p-5 shadow-sm" style={card}>
             <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--text)' }}>Примеры обращений</h2>
             <div
