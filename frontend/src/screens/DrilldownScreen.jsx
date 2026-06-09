@@ -61,13 +61,17 @@ const SeverityTooltip = ({ active, payload }) => {
   )
 }
 
+const LEFT_CARD_CHROME = 84
+
 export default function DrilldownScreen({ district: initialDistrict, taskId, isDemo, onBack, dark, onToggleTheme }) {
   const [district, setDistrict] = useState(initialDistrict)
   const [loading, setLoading] = useState(!!taskId)
   const [generating, setGenerating] = useState(false)
   const [exportingPdf, setExportingPdf] = useState(false)
   const rightColRef = useRef(null)
+  const leftListRef = useRef(null)
   const [rightColHeight, setRightColHeight] = useState(null)
+  const [listContentHeight, setListContentHeight] = useState(0)
 
   useEffect(() => {
     const el = rightColRef.current
@@ -92,6 +96,18 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
       mq.removeEventListener('change', syncHeight)
     }
   }, [district, loading])
+
+  useEffect(() => {
+    const list = leftListRef.current
+    if (!list) return undefined
+
+    const syncListHeight = () => setListContentHeight(list.scrollHeight)
+    const ro = new ResizeObserver(syncListHeight)
+    ro.observe(list)
+    syncListHeight()
+
+    return () => ro.disconnect()
+  }, [district.problems, loading])
 
   useEffect(() => {
     setDistrict(initialDistrict)
@@ -131,6 +147,13 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
   const categoriesListMaxHeightClass = district.summary
     ? 'max-h-[min(calc(100vh-19rem),720px)]'
     : 'max-h-[min(calc(100vh-12rem),780px)]'
+  const categoriesNaturalHeight = LEFT_CARD_CHROME + listContentHeight
+  const categoriesAlignHeight = rightColHeight
+    ? Math.min(rightColHeight, categoriesNaturalHeight)
+    : null
+  const categoriesScrollInside = Boolean(
+    rightColHeight && categoriesNaturalHeight > rightColHeight,
+  )
 
   const handlePdfExport = async () => {
     if (exportingPdf) return
@@ -299,15 +322,18 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
             className="p-5 shadow-sm flex flex-col min-h-0"
             style={{
               ...card,
-              ...(rightColHeight ? { height: rightColHeight, maxHeight: rightColHeight } : null),
+              ...(categoriesAlignHeight
+                ? { height: categoriesAlignHeight, maxHeight: categoriesAlignHeight }
+                : null),
             }}
           >
             <h2 className="text-base font-semibold mb-4 flex-shrink-0" style={{ color: 'var(--text)' }}>Доли категорий</h2>
             {district.problems.length ? (
               <div
-                className={`flex-1 space-y-3.5 overflow-y-auto overflow-x-hidden pr-1 -mr-1 min-h-0 ${
-                  rightColHeight ? '' : categoriesListMaxHeightClass
-                }`}
+                ref={leftListRef}
+                className={`space-y-3.5 overflow-x-hidden pr-1 -mr-1 min-h-0 ${
+                  categoriesScrollInside ? 'flex-1 overflow-y-auto' : ''
+                } ${categoriesAlignHeight ? '' : categoriesListMaxHeightClass}`}
               >
                 {district.problems.map((p, i) => {
                   const Icon = CATEGORY_ICONS[p.category] || Tags
