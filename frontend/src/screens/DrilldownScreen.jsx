@@ -466,17 +466,27 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
             </div>
           </div>
 
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 items-stretch">
             {[
               { label: 'Всего обращений', value: total, sub: 'за период' },
               { label: 'Индекс', value: district.score, sub: 'из 100', color },
-              { label: 'Топ-категория', value: district.topProblem, sub: 'больше всего жалоб' },
+              { label: 'Топ-категория', value: district.topProblem, sub: 'больше всего жалоб', compactValue: true },
               { label: 'Категорий', value: district.problems.length, sub: 'типов проблем' },
-            ].map(({ label, value, sub, color: c }) => (
-              <div key={label} className="p-4 shadow-sm" style={card}>
-                <p className="text-xs mb-1" style={{ color: 'var(--muted)' }}>{label}</p>
-                <p className="text-2xl font-bold" style={{ color: c || 'var(--text)' }}>{value}</p>
-                <p className="text-xs mt-0.5" style={{ color: 'var(--muted)' }}>{sub}</p>
+            ].map(({ label, value, sub, color: c, compactValue }) => (
+              <div key={label} className="p-4 shadow-sm h-full flex flex-col min-h-0" style={card}>
+                <p className="text-xs mb-1 flex-shrink-0" style={{ color: 'var(--muted)' }}>{label}</p>
+                <p
+                  className={
+                    compactValue
+                      ? 'flex-1 min-h-0 text-xs sm:text-sm font-semibold leading-snug line-clamp-4'
+                      : 'flex-1 min-h-0 text-2xl font-bold leading-none'
+                  }
+                  style={{ color: c || 'var(--text)' }}
+                  title={compactValue ? String(value) : undefined}
+                >
+                  {value}
+                </p>
+                <p className="text-xs mt-2 flex-shrink-0" style={{ color: 'var(--muted)' }}>{sub}</p>
               </div>
             ))}
           </div>
