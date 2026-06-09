@@ -543,7 +543,7 @@ def build_district_report(
     topics = [t for t in report.get("topics", []) if t.get("муниципалитет") == muni]
     total = _safe_int(target.get("total_incidents", 0))
     themes_stat = []
-    for t in sorted(topics, key=lambda x: x.get("count", 0), reverse=True)[:8]:
+    for t in sorted(topics, key=lambda x: x.get("count", 0), reverse=True):
         count = _safe_int(t.get("count", 0))
         pct = round(count / total * 100, 1) if total else 0.0
         themes_stat.append(

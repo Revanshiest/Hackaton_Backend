@@ -35,7 +35,7 @@ def select_diverse_examples(
     n: int = 6,
     *,
     min_len: int = 40,
-    max_len: int = 500,
+    max_len: int | None = None,
 ) -> list[dict]:
     """Выбрать до n примеров, по возможности с разными уровнями тяжести."""
     pool: list[dict] = []
@@ -53,7 +53,7 @@ def select_diverse_examples(
             continue
         pool.append(
             {
-                "text": truncate_text(raw, max_len),
+                "text": raw if max_len is None else truncate_text(raw, max_len),
                 "severity": sev,
                 "label": str(item.get("label") or SEVERITY_LABELS.get(sev, str(sev))),
             }
@@ -92,7 +92,7 @@ def sample_problem_texts(
     problems: pd.DataFrame,
     muni: str,
     n: int = 6,
-    max_len: int = 500,
+    max_len: int | None = None,
     min_len: int = 40,
 ) -> list[dict]:
     if problems.empty or "текст" not in problems.columns:

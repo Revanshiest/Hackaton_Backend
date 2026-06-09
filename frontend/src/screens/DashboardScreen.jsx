@@ -126,12 +126,12 @@ export default function DashboardScreen({
   }
 
   return (
-    <div className="flex flex-col overflow-hidden" style={{ height: '100vh', background: 'var(--bg)' }}>
+    <div className="flex flex-col h-screen min-h-0 overflow-hidden" style={{ background: 'var(--bg)' }}>
       <header
-        className="px-5 py-3.5 flex items-center justify-between sticky top-0 z-50 shadow-sm"
+        className="px-3 sm:px-5 py-3 sm:py-3.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 sticky top-0 z-50 shadow-sm"
         style={{ background: 'var(--head-bg)', borderBottom: '1px solid var(--border)' }}
       >
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           <div className="w-7 h-7 rounded-lg bg-red-600 flex items-center justify-center flex-shrink-0">
             <Zap className="w-4 h-4 text-white" />
           </div>
@@ -142,22 +142,23 @@ export default function DashboardScreen({
               <LiveDemoToggle enabled={liveDemoOn} onToggle={() => setLiveDemoOn((v) => !v)} />
             </div>
             {periodLabel && (
-              <p className="text-xs mt-0.5 flex items-center gap-1 truncate sm:hidden" style={{ color: 'var(--text-2)' }}>
+              <p className="text-xs mt-0.5 flex items-center gap-1 truncate md:hidden" style={{ color: 'var(--text-2)' }}>
                 <CalendarRange className="w-3 h-3 flex-shrink-0" />
                 {periodLabel}
+                {statsLabel && <span className="truncate"> · {statsLabel}</span>}
               </p>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex flex-col items-end gap-0.5 text-xs" style={{ color: 'var(--muted)' }}>
+        <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0 flex-wrap justify-end">
+          <div className="hidden md:flex flex-col items-end gap-0.5 text-xs max-w-[min(100%,28rem)]" style={{ color: 'var(--muted)' }}>
             {periodLabel && (
               <div className="flex items-center gap-1.5" style={{ color: 'var(--text-2)' }}>
                 <CalendarRange className="w-3.5 h-3.5 flex-shrink-0" />
                 <span>Период: {periodLabel}</span>
               </div>
             )}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
               {isDemo ? (
                 <>
                   <div className="w-1.5 h-1.5 rounded-full bg-amber-500" />
@@ -216,16 +217,16 @@ export default function DashboardScreen({
 
       <LiveDemoPanel enabled={liveDemoOn} feed={liveFeed} />
 
-      <div className="flex flex-row gap-0 overflow-hidden" style={{ height: 'calc(100vh - 57px)' }}>
-        <div className="w-1/2 flex flex-col flex-shrink-0 p-4" style={{ height: '100%', paddingTop: '21px' }}>
-          <div className="rounded-2xl overflow-hidden flex flex-col shadow-sm" style={{ ...card, height: '100%' }}>
+      <div className="flex-1 flex flex-col xl:flex-row min-h-0 overflow-y-auto xl:overflow-hidden">
+        <div className="w-full xl:w-[46%] 2xl:w-[44%] flex flex-col flex-shrink-0 p-3 sm:p-4 xl:min-h-0 h-[min(48vh,440px)] xl:h-auto xl:flex-1">
+          <div className="rounded-2xl overflow-hidden flex flex-col shadow-sm flex-1 min-h-[240px]" style={{ ...card }}>
             <div
-              className="px-4 py-3 flex items-center gap-2 flex-shrink-0"
+              className="px-3 sm:px-4 py-2.5 sm:py-3 flex items-center gap-2 flex-shrink-0 flex-wrap"
               style={{ borderBottom: '1px solid var(--border)' }}
             >
-              <TrendingUp className="w-4 h-4" style={{ color: 'var(--muted)' }} />
+              <TrendingUp className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--muted)' }} />
               <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Карта Омской области</span>
-              <span className="text-xs" style={{ color: 'var(--muted)' }}>кликните на район</span>
+              <span className="text-xs hidden sm:inline" style={{ color: 'var(--muted)' }}>кликните на район</span>
               <button
                 onClick={() => setShowTiles((t) => !t)}
                 className="ml-auto p-1 rounded-md transition-colors"
@@ -235,10 +236,10 @@ export default function DashboardScreen({
               </button>
             </div>
             <div
-              className="px-4 py-2 flex items-center gap-3 flex-shrink-0"
+              className="px-3 sm:px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-1 flex-shrink-0"
               style={{ borderBottom: '1px solid var(--border)' }}
             >
-              {[['#22c55e', '75+'], ['#84cc16', '60–74'], ['#f97316', '50–59'], ['#ef4444', '35–49'], ['#991b1b', '<35']].map(
+              {[['#991b1b', '75+'], ['#ef4444', '60–74'], ['#f97316', '50–59'], ['#84cc16', '35–49'], ['#22c55e', '<35']].map(
                 ([c, l]) => (
                   <div key={l} className="flex items-center gap-1.5">
                     <div className="w-2.5 h-2.5 rounded-sm" style={{ background: c }} />
@@ -253,39 +254,39 @@ export default function DashboardScreen({
           </div>
         </div>
 
-        <div className="w-1/2 flex flex-col gap-4 p-4 overflow-hidden min-h-0">
+        <div className="w-full xl:flex-1 xl:min-w-0 flex flex-col gap-3 sm:gap-4 p-3 sm:p-4 xl:overflow-hidden min-h-0 pb-6 xl:pb-4">
           <div className="flex-shrink-0">
-            <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="w-4 h-4 text-red-500" />
+            <div className="flex items-center gap-2 mb-3 flex-wrap">
+              <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
               <h2 className="text-sm font-semibold" style={{ color: 'var(--text-2)' }}>Критические районы</h2>
-              <span className="text-xs" style={{ color: 'var(--muted)' }}>· требуют первоочередного внимания</span>
+              <span className="text-xs hidden sm:inline" style={{ color: 'var(--muted)' }}>· требуют первоочередного внимания</span>
             </div>
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3 sm:gap-4">
               {critical.map((d, i) => (
                 <DistrictCard key={d.id} district={d} rank={i + 1} onClick={() => onDistrictClick(d)} />
               ))}
             </div>
           </div>
 
-          <div className="flex-1 rounded-2xl overflow-hidden flex flex-col shadow-sm min-h-0" style={{ ...card }}>
+          <div className="flex-1 rounded-2xl overflow-hidden flex flex-col shadow-sm min-h-[280px] xl:min-h-0" style={{ ...card }}>
             <div
-              className="px-4 py-3 flex items-center gap-2 flex-shrink-0"
+              className="px-3 sm:px-4 py-2.5 sm:py-3 flex items-center gap-2 flex-shrink-0 flex-wrap"
               style={{ borderBottom: '1px solid var(--border)' }}
             >
-              <AlertTriangle className="w-4 h-4 text-orange-500" />
+              <AlertTriangle className="w-4 h-4 text-orange-500 flex-shrink-0" />
               <span className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
                 Топ-10 проблемных районов
               </span>
-              <span className="text-xs" style={{ color: 'var(--muted)' }}>выше индекс — больше проблем</span>
+              <span className="text-xs hidden lg:inline" style={{ color: 'var(--muted)' }}>выше индекс — больше проблем</span>
               {(taskId || (isDemo && demoMeta.source_job)) && (
                 <button
                   type="button"
                   onClick={() => window.open(api.excelTop10Url(isDemo ? demoMeta.source_job : taskId), '_blank')}
-                  className="ml-auto flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg transition-colors hover:opacity-90"
+                  className="ml-auto flex items-center gap-1.5 text-xs font-medium px-2 sm:px-2.5 py-1 rounded-lg transition-colors hover:opacity-90"
                   style={{ border: '1px solid var(--border)', color: 'var(--text-2)', background: 'var(--bg-card)' }}
                 >
                   <Download className="w-3.5 h-3.5" />
-                  Excel Top-10
+                  <span className="hidden sm:inline">Excel Top-10</span>
                 </button>
               )}
             </div>

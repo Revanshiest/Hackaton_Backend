@@ -39,8 +39,6 @@ const SEVERITY_COLORS = {
   4: '#dc2626',
 }
 
-const EXAMPLES_DISPLAY_LIMIT = 7
-
 const formatAppealText = (text) =>
   String(text)
     .replace(/<br\s*\/?>/gi, ' ')
@@ -62,53 +60,37 @@ const SeverityTooltip = ({ active, payload }) => {
   )
 }
 
-function splitCategoryLabel(text, maxChars = 40) {
-  const value = String(text || '').trim()
-  if (value.length <= maxChars) return [value]
-  const words = value.split(/\s+/)
-  const lines = []
-  let line = ''
-  for (const word of words) {
-    const next = line ? `${line} ${word}` : word
-    if (next.length > maxChars && line) {
-      lines.push(line)
-      line = word
-    } else {
-      line = next
-    }
-  }
-  if (line) lines.push(line)
-  if (lines.length > 2) {
-    const merged = `${lines[0]} ${lines[1]}`
-    return merged.length > maxChars + 6
-      ? [`${merged.slice(0, maxChars - 1)}…`]
-      : [lines[0], `${lines[1].slice(0, maxChars - 1)}…`]
-  }
-  return lines
+const CATEGORY_AXIS_WIDTH_LG = 300
+const CATEGORY_ROW_HEIGHT = 46
+const CATEGORY_CHART_MAX_HEIGHT = 380
+
+function categoryAxisWidthForViewport() {
+  if (typeof window === 'undefined') return CATEGORY_AXIS_WIDTH_LG
+  const w = window.innerWidth
+  if (w < 640) return 168
+  if (w < 1024) return 220
+  return CATEGORY_AXIS_WIDTH_LG
 }
 
-function CategoryYAxisTick({ x, y, payload }) {
-  const lines = splitCategoryLabel(payload?.value)
+function CategoryYAxisTick({ x, y, payload, axisWidth = CATEGORY_AXIS_WIDTH_LG }) {
+  const label = String(payload?.value || '').trim()
+  const boxWidth = axisWidth - 12
+  const boxHeight = CATEGORY_ROW_HEIGHT - 8
   return (
-    <g transform={`translate(${x},${y})`}>
-      {lines.map((line, i) => (
-        <text
-          key={i}
-          x={0}
-          y={0}
-          dy={i * 13 + (lines.length === 1 ? 4 : -2)}
-          textAnchor="end"
-          fill="var(--text-2)"
-          fontSize={12}
-        >
-          {line}
-        </text>
-      ))}
-    </g>
+    <foreignObject x={x - boxWidth} y={y - boxHeight / 2} width={boxWidth} height={boxHeight}>
+      <div
+        xmlns="http://www.w3.org/1999/xhtml"
+        className="flex h-full items-center justify-end text-right text-[11px] sm:text-xs leading-snug"
+        style={{ color: 'var(--text-2)', wordBreak: 'break-word', overflow: 'hidden' }}
+        title={label}
+      >
+        {label}
+      </div>
+    </foreignObject>
   )
 }
 
-const chartBarHeight = (count) => Math.max(240, count * 52 + 36)
+const categoryChartHeight = (count) => Math.max(120, count * CATEGORY_ROW_HEIGHT + 16)
 
 const CustomTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null
@@ -127,6 +109,13 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
   const [loading, setLoading] = useState(!!taskId)
   const [generating, setGenerating] = useState(false)
   const [exportingPdf, setExportingPdf] = useState(false)
+  const [categoryAxisWidth, setCategoryAxisWidth] = useState(categoryAxisWidthForViewport)
+
+  useEffect(() => {
+    const onResize = () => setCategoryAxisWidth(categoryAxisWidthForViewport())
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
 
   useEffect(() => {
     setDistrict(initialDistrict)
@@ -249,41 +238,42 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
   return (
     <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
       <header
-        className="px-5 py-3.5 flex items-center gap-3 sticky top-0 z-50 shadow-sm"
+        className="px-3 sm:px-5 py-3 sm:py-3.5 flex flex-wrap items-center gap-x-2 sm:gap-3 gap-y-2 sticky top-0 z-50 shadow-sm"
         style={{ background: 'var(--head-bg)', borderBottom: '1px solid var(--border)' }}
       >
         <button
           onClick={onBack}
-          className="flex items-center gap-1.5 text-sm font-medium transition-colors"
+          className="flex items-center gap-1.5 text-sm font-medium transition-colors flex-shrink-0"
           style={{ color: 'var(--text-2)' }}
         >
           <ArrowLeft className="w-4 h-4" /> Назад
         </button>
-        <div className="w-px h-5" style={{ background: 'var(--border)' }} />
-        <h1 className="font-bold" style={{ color: 'var(--text)' }}>{district.name}</h1>
+        <div className="w-px h-5 hidden sm:block" style={{ background: 'var(--border)' }} />
+        <h1 className="font-bold text-sm sm:text-base min-w-0 break-words flex-1 sm:flex-none" style={{ color: 'var(--text)' }}>{district.name}</h1>
         <span
-          className="text-sm font-bold px-2.5 py-0.5 rounded-full"
+          className="text-xs sm:text-sm font-bold px-2 sm:px-2.5 py-0.5 rounded-full flex-shrink-0"
           style={{ color, background: `${color}18` }}
         >
           Скор {district.score}
         </span>
         <TaskTimingPopover taskId={taskId} isDemo={isDemo} sourceJob={isDemo ? demoMeta.source_job : null} />
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end w-full sm:w-auto">
           {taskId && (
             <button
               onClick={handleFullReport}
               disabled={generating}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+              className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
               style={{ background: '#dc2626', color: '#fff', border: '1px solid #b91c1c', opacity: generating ? 0.6 : 0.9 }}
             >
               <FileSearch className="w-3.5 h-3.5" />
-              {generating ? 'Генерация…' : 'Сгенерировать сводку'}
+              <span className="hidden md:inline">{generating ? 'Генерация…' : 'Сгенерировать сводку'}</span>
+              <span className="md:hidden">{generating ? '…' : 'Сводка'}</span>
             </button>
           )}
           <button
             onClick={handlePdfExport}
             disabled={exportingPdf}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
             style={{
               border: '1px solid #b91c1c',
               background: '#dc2626',
@@ -292,14 +282,15 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
             }}
           >
             <FileType className="w-3.5 h-3.5" />
-            {exportingPdf ? 'PDF…' : 'Скачать PDF'}
+            <span className="hidden sm:inline">{exportingPdf ? 'PDF…' : 'Скачать PDF'}</span>
           </button>
           <button
             onClick={handleDownload}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
             style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-2)' }}
           >
-            <Download className="w-3.5 h-3.5" /> {(taskId || (isDemo && demoMeta.source_job)) ? 'Excel Top-10' : 'TXT'}
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">{(taskId || (isDemo && demoMeta.source_job)) ? 'Excel Top-10' : 'TXT'}</span>
           </button>
           <ThemeToggle dark={dark} onToggle={onToggleTheme} />
         </div>
@@ -323,36 +314,41 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
         </div>
       )}
 
-      <div className="flex-1 p-4 lg:p-5 grid grid-cols-1 lg:grid-cols-2 gap-4 anim-up">
+      <div className="flex-1 p-3 sm:p-4 lg:p-5 grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 anim-up">
         <div className="space-y-4">
           <div className="p-5 shadow-sm" style={card}>
             <h2 className="text-base font-semibold mb-5" style={{ color: 'var(--text)' }}>Обращения по категориям</h2>
             {district.problems.length ? (
-              <ResponsiveContainer width="100%" height={chartBarHeight(district.problems.length)}>
-                <BarChart
-                  data={district.problems}
-                  layout="vertical"
-                  barSize={16}
-                  margin={{ top: 4, right: 12, left: 4, bottom: 4 }}
-                >
-                  <XAxis type="number" tick={{ fill: 'var(--muted)', fontSize: 12 }} axisLine={false} tickLine={false} />
-                  <YAxis
-                    dataKey="category"
-                    type="category"
-                    width={240}
-                    tick={<CategoryYAxisTick />}
-                    interval={0}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip content={<CustomTooltip />} cursor={{ fill: `${color}08` }} />
-                  <Bar dataKey="count" radius={[0, 6, 6, 0]}>
-                    {district.problems.map((_, i) => (
-                      <Cell key={i} fill={i === 0 ? '#dc2626' : i === 1 ? '#ea580c' : '#94a3b8'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <div
+                className="overflow-y-auto overflow-x-hidden pr-1 -mr-1"
+                style={{ maxHeight: CATEGORY_CHART_MAX_HEIGHT }}
+              >
+                <ResponsiveContainer width="100%" height={categoryChartHeight(district.problems.length)}>
+                  <BarChart
+                    data={district.problems}
+                    layout="vertical"
+                    barSize={14}
+                    margin={{ top: 8, right: 16, left: 0, bottom: 8 }}
+                  >
+                    <XAxis type="number" tick={{ fill: 'var(--muted)', fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <YAxis
+                      dataKey="category"
+                      type="category"
+                      width={categoryAxisWidth}
+                      tick={<CategoryYAxisTick axisWidth={categoryAxisWidth} />}
+                      interval={0}
+                      axisLine={false}
+                      tickLine={false}
+                    />
+                    <Tooltip content={<CustomTooltip />} cursor={{ fill: `${color}08` }} />
+                    <Bar dataKey="count" radius={[0, 6, 6, 0]}>
+                      {district.problems.map((_, i) => (
+                        <Cell key={i} fill={i === 0 ? '#dc2626' : i === 1 ? '#ea580c' : '#94a3b8'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             ) : (
               <p className="text-sm" style={{ color: 'var(--muted)' }}>Нет данных по категориям</p>
             )}
@@ -361,7 +357,10 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
           {district.problems.length > 0 && (
             <div className="p-5 shadow-sm" style={card}>
               <h2 className="text-base font-semibold mb-4" style={{ color: 'var(--text)' }}>Доли категорий</h2>
-              <div className="space-y-4">
+              <div
+                className="space-y-4 overflow-y-auto overflow-x-hidden pr-1 -mr-1"
+                style={{ maxHeight: CATEGORY_CHART_MAX_HEIGHT }}
+              >
                 {district.problems.map((p, i) => {
                   const Icon = CATEGORY_ICONS[p.category] || Home
                   return (
@@ -400,7 +399,6 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
               style={{ maxHeight: 'min(42vh, 380px)' }}
             >
               {(district.examples.length ? district.examples : [{ text: 'Нет примеров', severity: 0, label: '' }])
-                .slice(0, EXAMPLES_DISPLAY_LIMIT)
                 .map((item, i) => {
                 const text = formatAppealText(typeof item === 'string' ? item : item.text)
                 const severity = typeof item === 'string' ? 1 : item.severity
@@ -427,7 +425,7 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
                           {label} · {severity}
                         </span>
                       )}
-                      <p className="text-sm leading-relaxed" style={{ color: 'var(--text-2)' }}>{text}</p>
+                      <p className="text-sm leading-relaxed break-words whitespace-pre-wrap" style={{ color: 'var(--text-2)' }}>{text}</p>
                     </div>
                   </div>
                 )
@@ -435,7 +433,7 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
             {[
               { label: 'Всего обращений', value: total, sub: 'за период' },
               { label: 'Индекс', value: district.score, sub: 'из 100', color },

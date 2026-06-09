@@ -234,24 +234,17 @@ export default function App() {
 
       )}
 
-      {screen === 'dashboard' && (
-
-        <DashboardScreen
-
-          taskId={isDemo ? null : taskId}
-
-          isDemo={isDemo}
-
-          onDistrictClick={handleDistrictClick}
-
-          onReset={handleReset}
-
-          dark={dark}
-
-          onToggleTheme={toggleTheme}
-
-        />
-
+      {(screen === 'dashboard' || screen === 'drilldown') && (
+        <div className={screen === 'dashboard' ? 'contents' : 'hidden'} aria-hidden={screen !== 'dashboard'}>
+          <DashboardScreen
+            taskId={isDemo ? null : taskId}
+            isDemo={isDemo}
+            onDistrictClick={handleDistrictClick}
+            onReset={handleReset}
+            dark={dark}
+            onToggleTheme={toggleTheme}
+          />
+        </div>
       )}
 
       {screen === 'drilldown' && selectedDistrict && (
