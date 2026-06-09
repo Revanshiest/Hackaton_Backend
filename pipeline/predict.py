@@ -22,7 +22,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Предсказание класса тяжести.")
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", default="")
-    parser.add_argument("--model-dir", default=None, help="Оставьте пустым для автовыбора (model_onnx)")
+    parser.add_argument("--model-dir", default=None, help="Оставьте пустым для автовыбора (fast_rubert)")
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto")
     return parser.parse_args()

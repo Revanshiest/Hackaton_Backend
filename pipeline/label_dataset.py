@@ -39,7 +39,7 @@ def parse_args():
     parser.add_argument(
         "--model-dir",
         default=None,
-        help="Папка модели (по умолчанию авто: model_onnx/)",
+        help="Папка модели (по умолчанию авто: fast_rubert/)",
     )
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--device", choices=["auto", "cuda", "cpu"], default="auto")

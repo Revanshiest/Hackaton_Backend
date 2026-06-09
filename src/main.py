@@ -5,23 +5,31 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse, Response
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.config.paths import DATA_DIR, JOBS_DIR
-from app.report import build_dashboard, build_district_report, build_top10_excel_from_report
+from app.pdf_report import (  # noqa: I001
+    build_district_pdf,
+    build_region_pdf,
+    content_disposition_header,
+    content_disposition_region_header,
+)
+from app.report import build_dashboard, build_district_report, build_top10_excel_from_report, enrich_report_period
 from schemas import (
     DashboardResponse,
     DatasetUploadResponse,
+    DistrictReport,
     DistrictReportResponse,
     GenerateReportRequest,
     GenerateReportResponse,
     JobStatus,
     PipelineOptions,
     PipelineStep,
+    RegionPdfRequest,
 )
 from src import jobs
 
@@ -63,10 +71,9 @@ api_router = APIRouter(prefix="/api/v1")
 
 
 def _job_status(task_id: str) -> JobStatus:
-    try:
-        job = jobs.require_job(task_id)
-    except KeyError:
-        raise HTTPException(404, "Задача не найдена") from None
+    job = jobs.get_job(task_id)
+    if job is None:
+        raise HTTPException(404, "Задача не найдена")
     return JobStatus(
         task_id=job["task_id"],
         status=job["status"],
@@ -76,6 +83,7 @@ def _job_status(task_id: str) -> JobStatus:
         rows_processed=job.get("rows_processed"),
         stats=job.get("stats"),
         steps=[PipelineStep(**s) for s in (job.get("steps") or [])],
+        progress=job.get("progress"),
     )
 
 
@@ -137,7 +145,7 @@ async def upload_dataset(
 
 @api_router.get("/jobs", response_model=list[JobStatus], summary="Список задач")
 async def list_jobs():
-    return [_job_status(j["task_id"]) for j in jobs.list_jobs()]
+    return [_job_status(j["task_id"]) for j in jobs.list_jobs() if jobs.get_job(j["task_id"])]
 
 
 @api_router.get("/jobs/{task_id}", response_model=JobStatus, summary="Статус задачи")
@@ -204,6 +212,7 @@ async def download_excel_top10(task_id: str):
     summary="Данные дашборда по последней или указанной задаче",
 )
 async def get_dashboard(task_id: str | None = None):
+    resolved_id = task_id
     try:
         if task_id:
             report = jobs.get_report(task_id)
@@ -214,13 +223,16 @@ async def get_dashboard(task_id: str | None = None):
             if not completed:
                 raise HTTPException(404, "Нет завершённых задач. Загрузите датасет.")
             completed.sort(key=lambda j: j.get("created_at") or "", reverse=True)
-            report = jobs.get_report(completed[0]["task_id"])
+            resolved_id = completed[0]["task_id"]
+            report = jobs.get_report(resolved_id)
     except KeyError:
         raise HTTPException(404, "Задача не найдена") from None
     except jobs.JobNotReadyError as exc:
         raise HTTPException(409, f"Задача ещё не готова: {exc.status}") from exc
     except FileNotFoundError:
         raise HTTPException(404, "Отчёт ещё не готов") from None
+    if resolved_id:
+        enrich_report_period(report, jobs.job_path(resolved_id) / "cache")
     return build_dashboard(report)
 
 
@@ -256,6 +268,126 @@ async def get_district_report(district_id: int, task_id: str | None = None):
     if result is None:
         raise HTTPException(404, f"Район с id={district_id} не найден")
     return result
+
+
+def _collect_district_reports(report: dict, task_id: str) -> list[DistrictReport]:
+    labeled_df = jobs.get_labeled_df(task_id)
+    districts: list[DistrictReport] = []
+    for row in report.get("all", []):
+        district_id = int(row.get("district_id", row.get("rank", 0)))
+        custom_summary = jobs.get_district_summary(task_id, district_id)
+        result = build_district_report(
+            report,
+            district_id,
+            analytical_summary=custom_summary,
+            labeled_df=labeled_df,
+        )
+        if result is not None:
+            districts.append(result.data)
+    return districts
+
+
+def _district_report_pdf_response(data: DistrictReport) -> Response:
+    try:
+        pdf_bytes = build_district_pdf(data)
+    except Exception as exc:
+        raise HTTPException(500, f"Не удалось сформировать PDF: {exc}") from exc
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": content_disposition_header(
+                data.district_id,
+                data.district_name,
+            ),
+        },
+    )
+
+
+@api_router.get(
+    "/districts/{district_id}/report.pdf",
+    summary="PDF-отчёт по муниципалитету",
+)
+async def get_district_report_pdf(district_id: int, task_id: str | None = None):
+    if not task_id:
+        completed = [j for j in jobs.list_jobs() if j.get("status") == "completed"]
+        if not completed:
+            raise HTTPException(404, "Нет завершённых задач")
+        completed.sort(key=lambda j: j.get("created_at") or "", reverse=True)
+        task_id = completed[0]["task_id"]
+
+    try:
+        report = jobs.get_report(task_id)
+    except KeyError:
+        raise HTTPException(404, "Задача не найдена") from None
+    except jobs.JobNotReadyError as exc:
+        raise HTTPException(409, f"Задача ещё не готова: {exc.status}") from exc
+    except FileNotFoundError:
+        raise HTTPException(404, "Отчёт ещё не готов") from None
+
+    custom_summary = jobs.get_district_summary(task_id, district_id)
+    result = build_district_report(
+        report,
+        district_id,
+        analytical_summary=custom_summary,
+        labeled_df=jobs.get_labeled_df(task_id),
+    )
+    if result is None:
+        raise HTTPException(404, f"Район с id={district_id} не найден")
+    return _district_report_pdf_response(result.data)
+
+
+@api_router.post(
+    "/reports/district/pdf",
+    summary="PDF-отчёт по переданным данным (demo / без task_id)",
+)
+async def post_district_report_pdf(data: DistrictReport):
+    return _district_report_pdf_response(data)
+
+
+@api_router.get(
+    "/jobs/{task_id}/report.pdf",
+    summary="Сводный PDF по всем муниципалитетам задачи",
+)
+async def get_region_report_pdf(task_id: str):
+    _require_completed(task_id)
+    try:
+        report = jobs.get_report(task_id)
+    except FileNotFoundError:
+        raise HTTPException(404, "Отчёт ещё не готов") from None
+
+    districts = _collect_district_reports(report, task_id)
+    if not districts:
+        raise HTTPException(404, "Нет данных по муниципалитетам")
+
+    try:
+        pdf_bytes = build_region_pdf(districts, executive_summary=report.get("summary_text", ""))
+    except Exception as exc:
+        raise HTTPException(500, f"Не удалось сформировать PDF: {exc}") from exc
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": content_disposition_region_header()},
+    )
+
+
+@api_router.post(
+    "/reports/region/pdf",
+    summary="Сводный PDF по списку муниципалитетов (demo)",
+)
+async def post_region_report_pdf(body: RegionPdfRequest):
+    if not body.districts:
+        raise HTTPException(400, "Список муниципалитетов пуст")
+    try:
+        pdf_bytes = build_region_pdf(body.districts, executive_summary=body.executive_summary)
+    except Exception as exc:
+        raise HTTPException(500, f"Не удалось сформировать PDF: {exc}") from exc
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": content_disposition_region_header()},
+    )
 
 
 @api_router.post(

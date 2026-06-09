@@ -13,7 +13,7 @@ from app.aggregate import build_municipality_rankings
 from app.breakdown import attach_reasons_to_rankings, build_topic_group_breakdown
 from app.config.settings import PipelineSettings
 from app.io_excel import load_incidents, to_inference_frame
-from app.report import build_severity_breakdown, write_excel_report, write_report_json
+from app.report import build_severity_breakdown, compute_incident_date_range, write_excel_report, write_report_json
 from app.summary import (
     _attach_summary_paragraphs,
     attach_summary_text_from_paragraphs,
@@ -25,7 +25,7 @@ from app.summary import (
 from pipeline.inference import run_inference
 from training_utils import format_input_text
 
-ProgressCallback = Callable[[str, str, str], None]
+ProgressCallback = Callable[[str, str, str, float | None], None]
 
 
 @dataclass(frozen=True)
@@ -41,9 +41,14 @@ def run_pipeline(
     cfg: PipelineSettings,
     on_progress: ProgressCallback | None = None,
 ) -> PipelineResult:
-    def step(step_id: str, status: str, detail: str = "") -> None:
+    def step(
+        step_id: str,
+        status: str,
+        detail: str = "",
+        step_fraction: float | None = None,
+    ) -> None:
         if on_progress:
-            on_progress(step_id, status, detail)
+            on_progress(step_id, status, detail, step_fraction)
 
     t0 = time.perf_counter()
     cfg.output_dir.mkdir(parents=True, exist_ok=True)
@@ -56,10 +61,26 @@ def run_pipeline(
     n_muni = int(df["муниципалитет"].nunique()) if "муниципалитет" in df.columns else 0
     step("load", "done", f"загружено {len(df)} строк, {n_muni} муниципалитетов")
 
-    step("classify", "running", "ONNX: проблема / тяжесть")
+    step("classify", "running", "ONNX: проблема / тяжесть", step_fraction=0.0)
     infer_df = to_inference_frame(df)
     texts = infer_df.apply(format_input_text, axis=1).tolist()
-    result = run_inference(texts, batch_size=cfg.batch_size)
+    total_rows = len(texts)
+
+    def on_classify_progress(done: int, total: int) -> None:
+        fraction = done / total if total else 0.0
+        pct = int(fraction * 100)
+        step(
+            "classify",
+            "running",
+            f"ONNX: {pct}% · {done}/{total} строк",
+            step_fraction=fraction,
+        )
+
+    result = run_inference(
+        texts,
+        batch_size=cfg.batch_size,
+        on_batch_progress=on_classify_progress if total_rows else None,
+    )
 
     labeled = df.copy()
     labeled["Метка_Класса"] = result.labels.astype(int)
@@ -72,7 +93,7 @@ def run_pipeline(
     n_prob = int(labeled["is_problem"].sum())
     step("classify", "done", f"проблемных обращений: {n_prob}")
 
-    step("aggregate", "running", "Health Score: веса 0/1/5/20/100, нормировка log(N)")
+    step("aggregate", "running", "Индекс проблемности: веса 0/1/5/20/100, нормировка log(N)")
     top_all, top10, top3 = build_municipality_rankings(labeled, cfg)
     top3_names = ", ".join(top3["муниципалитет"].astype(str).tolist()) if len(top3) else "—"
     step("aggregate", "done", f"всего {len(top_all)} МО; Top-3: {top3_names}")
@@ -160,6 +181,7 @@ def run_pipeline(
         muni_summaries=muni_summaries if not muni_summaries.empty else None,
         top3_summaries=top3_summaries if not top3_summaries.empty else None,
     )
+    period_start, period_end = compute_incident_date_range(labeled)
     stats = {
         "rows_processed": len(labeled),
         "problem_count": n_prob,
@@ -167,6 +189,10 @@ def run_pipeline(
         "top3_count": len(top3),
         "top10_count": len(top10),
     }
+    if period_start is not None:
+        stats["start_date"] = period_start.strftime("%Y-%m-%d")
+    if period_end is not None:
+        stats["end_date"] = period_end.strftime("%Y-%m-%d")
     write_report_json(
         cfg.output_dir,
         top_all,

@@ -22,7 +22,7 @@ from training_utils import format_input_text
 def parse_args():
     parser = argparse.ArgumentParser(description="Бенчмарк инференса на GPU.")
     parser.add_argument("--input", required=True)
-    parser.add_argument("--model-dir", default=None, help="Оставьте пустым для автовыбора (model_onnx)")
+    parser.add_argument("--model-dir", default=None, help="Оставьте пустым для автовыбора (fast_rubert)")
     parser.add_argument("--batch-size", type=int, default=16)
     return parser.parse_args()
 

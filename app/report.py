@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +12,7 @@ import pandas as pd
 
 from app.config.settings import PipelineSettings
 from app.llm_text import is_complete_summary, normalize_llm_summary
-from app.text_samples import clean_appeal_text, sample_problem_texts
+from app.text_samples import clean_appeal_text, sample_problem_texts, select_diverse_examples
 from schemas import (
     CriticalDistrictCard,
     DashboardResponse,
@@ -31,17 +33,124 @@ SEVERITY_LABELS: dict[int, str] = {
     4: "Критическая",
 }
 
+DATE_COLUMN_CANDIDATES = ("дата_создания", "Дата создания", "created_at")
+_ISO_DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}")
+
+
+def _prefer_dayfirst(values: pd.Series) -> bool:
+    """False для ISO (YYYY-MM-DD), True для европейского DD.MM.YYYY."""
+    for value in values.dropna().head(40):
+        if isinstance(value, (datetime, pd.Timestamp)):
+            continue
+        text = str(value).strip()
+        if _ISO_DATE_PREFIX.match(text):
+            return False
+        if re.match(r"^\d{1,2}\.", text) or re.match(r"^\d{1,2}/\d{1,2}/", text):
+            return True
+    return False
+
+
+def _parse_date_column(series: pd.Series) -> pd.Series:
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return pd.to_datetime(series, errors="coerce")
+    dayfirst = _prefer_dayfirst(series)
+    parsed = pd.to_datetime(series, errors="coerce", dayfirst=dayfirst)
+    if int(parsed.notna().sum()) == 0:
+        parsed = pd.to_datetime(series, errors="coerce", dayfirst=not dayfirst)
+    return parsed
+
+
+def compute_incident_date_range(df: pd.DataFrame) -> tuple[pd.Timestamp | None, pd.Timestamp | None]:
+    """Мин/макс даты создания обращений, если колонка распознана и парсится."""
+    if df is None or df.empty:
+        return None, None
+
+    min_rows = max(3, int(len(df) * 0.1))
+    for col in DATE_COLUMN_CANDIDATES:
+        if col not in df.columns:
+            continue
+        parsed = _parse_date_column(df[col])
+        valid = parsed.notna()
+        if int(valid.sum()) < min_rows:
+            continue
+        dates = parsed.loc[valid]
+        return dates.min(), dates.max()
+    return None, None
+
+
+def _parse_report_date(value) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, pd.Timestamp):
+        return value.to_pydatetime()
+    text = str(value).strip()
+    dayfirst = not bool(_ISO_DATE_PREFIX.match(text))
+    ts = pd.to_datetime(text, errors="coerce", dayfirst=dayfirst)
+    if pd.isna(ts):
+        return None
+    return ts.to_pydatetime()
+
+
+def enrich_report_period(report: dict, cache_dir: Path | None = None) -> dict:
+    """Дополняет stats периодом из labeled.parquet или input.xlsx (для старых report.json)."""
+    stats = report.setdefault("stats", {})
+    if stats.get("start_date") and stats.get("end_date"):
+        return report
+
+    start, end = None, None
+    labeled_path = cache_dir / "labeled.parquet" if cache_dir else None
+    if labeled_path is not None and labeled_path.exists():
+        start, end = compute_incident_date_range(pd.read_parquet(labeled_path))
+
+    if (start is None or end is None) and cache_dir is not None:
+        job_dir = cache_dir.parent
+        for name in ("input.xlsx", "input.xls"):
+            input_path = job_dir / name
+            if not input_path.exists():
+                continue
+            try:
+                from app.io_excel import load_incidents
+
+                start, end = compute_incident_date_range(load_incidents(input_path))
+                if start is not None:
+                    break
+            except Exception:
+                continue
+    if start is not None:
+        stats["start_date"] = start.strftime("%Y-%m-%d")
+    if end is not None:
+        stats["end_date"] = end.strftime("%Y-%m-%d")
+    return report
+
+
+def _dashboard_meta(report: dict) -> dict:
+    stats = report.get("stats") or {}
+    start = _parse_report_date(stats.get("start_date"))
+    end = _parse_report_date(stats.get("end_date"))
+    total = stats.get("rows_processed")
+    if total is None:
+        total = sum(_safe_int(r.get("total_incidents", 0)) for r in report.get("all", []))
+    problems = stats.get("problem_count")
+    return {
+        "start_date": start,
+        "end_date": end,
+        "total_incidents": _safe_int(total) if total else None,
+        "problem_count": _safe_int(problems) if problems is not None else None,
+    }
+
 
 def _build_incident_examples(
     reason: dict,
     muni: str,
     labeled_df: pd.DataFrame | None = None,
     *,
-    limit: int = 5,
+    limit: int = 6,
 ) -> list[IncidentExample]:
     raw = reason.get("примеры_обращений")
+    raw_candidates: list[dict] = []
     if isinstance(raw, list) and raw and isinstance(raw[0], dict):
-        examples: list[IncidentExample] = []
         for item in raw:
             sev = _safe_int(item.get("severity", 0))
             if sev <= 0:
@@ -49,15 +158,13 @@ def _build_incident_examples(
             text = clean_appeal_text(item.get("text", ""))
             if len(text) < 40:
                 continue
-            examples.append(
-                IncidentExample(
-                    text=text,
-                    severity=sev,
-                    label=str(item.get("label", SEVERITY_LABELS.get(sev, ""))),
-                )
+            raw_candidates.append(
+                {
+                    "text": text,
+                    "severity": sev,
+                    "label": str(item.get("label", SEVERITY_LABELS.get(sev, ""))),
+                }
             )
-        if examples:
-            return examples[:limit]
 
     if labeled_df is not None and not labeled_df.empty and "текст" in labeled_df.columns:
         problems = labeled_df
@@ -73,6 +180,17 @@ def _build_incident_examples(
                 )
                 for s in samples
             ]
+
+    if raw_candidates:
+        diverse = select_diverse_examples(raw_candidates, limit)
+        return [
+            IncidentExample(
+                text=s["text"],
+                severity=_safe_int(s["severity"]),
+                label=str(s.get("label", SEVERITY_LABELS.get(_safe_int(s["severity"]), ""))),
+            )
+            for s in diverse
+        ]
 
     legacy = [e.strip() for e in str(reason.get("примеры_текстов", "")).split(" || ") if e.strip()]
     return [
@@ -290,11 +408,11 @@ def _main_problem(row: pd.Series) -> str:
 
 
 def _criticality_status(score: int, severity_mean: float) -> str:
-    if score <= 15 or severity_mean >= 3.5:
+    if score >= 85 or severity_mean >= 3.5:
         return "КРИТИЧНЫЙ"
-    if score <= 30 or severity_mean >= 2.8:
+    if score >= 70 or severity_mean >= 2.8:
         return "ОЧЕНЬ ВЫСОКИЙ"
-    if score <= 45:
+    if score >= 55:
         return "ВЫСОКИЙ"
     return "ПОВЫШЕННЫЙ"
 
@@ -385,10 +503,15 @@ def build_dashboard(report: dict) -> DashboardResponse:
             )
         )
 
+    meta = _dashboard_meta(report)
     return DashboardResponse(
         map_data=map_data,
         top_districts=top_districts,
         critical_districts=critical_districts,
+        start_date=meta["start_date"],
+        end_date=meta["end_date"],
+        total_incidents=meta["total_incidents"],
+        problem_count=meta["problem_count"],
     )
 
 
@@ -468,6 +591,7 @@ def build_district_report(
         )
     summary = normalize_llm_summary(summary, one_sentence=False, max_chars=2000)
 
+    period = _dashboard_meta(report)
     return DistrictReportResponse(
         data=DistrictReport(
             district_id=district_id,
@@ -477,6 +601,8 @@ def build_district_report(
             total_incidents=total,
             top_category=str(reason.get("топ_тема", "") or _main_problem({**target, **reason})),
             categories_count=len(themes_stat),
+            start_date=period["start_date"],
+            end_date=period["end_date"],
             themes_stat=themes_stat,
             severity_stat=severity_stat,
             incident_examples=examples,

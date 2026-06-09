@@ -13,7 +13,7 @@ class PipelineSettings:
     batch_size: int = 16
     top_municipalities: int = 10
     top_hotspots: int = 3
-    examples_per_muni: int = 3
+    examples_per_muni: int = 6
     ollama_model: str = OLLAMA_MODEL
     ollama_base_url: str = OLLAMA_BASE_URL
     skip_summary: bool = False

@@ -1,6 +1,6 @@
 import { ArrowRight } from 'lucide-react'
 
-const scoreColor = (s) => s >= 75 ? '#22c55e' : s >= 60 ? '#84cc16' : s >= 50 ? '#f97316' : s >= 35 ? '#ef4444' : '#991b1b'
+import { scoreColor } from '../utils/scoreColor'
 const rankLabel  = ['Критичный', 'Очень высокий', 'Высокий']
 
 export default function DistrictCard({ district, rank, onClick }) {

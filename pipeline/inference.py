@@ -6,15 +6,19 @@ from __future__ import annotations
 
 import json
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
+BatchProgressCallback = Callable[[int, int], None]
+
+from app.config.paths import MODEL_DIR
 from training_utils import CLASS_NAMES
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_MODEL_DIR = PROJECT_ROOT / "model_onnx"
+DEFAULT_MODEL_DIR = MODEL_DIR
 
 LEVEL_LABELS = {
     0: "Не инцидент",
@@ -75,6 +79,24 @@ def _ensure_cuda_dlls() -> None:
         print(f"ONNX preload_dlls: {exc}", flush=True)
 
 
+def _build_ort_inputs(session, encoded: dict) -> dict:
+    """Собирает входы ONNX по именам, которые ожидает конкретная модель."""
+    ort_inputs: dict[str, np.ndarray] = {}
+    for input_meta in session.get_inputs():
+        name = input_meta.name
+        if name in encoded:
+            ort_inputs[name] = encoded[name]
+            continue
+        if name == "token_type_ids":
+            ort_inputs[name] = np.zeros_like(encoded["input_ids"], dtype=np.int64)
+            continue
+        raise ValueError(
+            f"ONNX-модель ожидает вход '{name}', но токенизатор его не вернул. "
+            f"Доступно: {list(encoded.keys())}"
+        )
+    return ort_inputs
+
+
 def resolve_onnx_providers(device: str | None = None) -> list[str]:
     import os
 
@@ -90,7 +112,13 @@ def resolve_onnx_providers(device: str | None = None) -> list[str]:
     return ["CPUExecutionProvider"]
 
 
-def predict_onnx(texts: list[str], resolved_dir: Path, batch_size: int, device: str | None) -> PredictionResult:
+def predict_onnx(
+    texts: list[str],
+    resolved_dir: Path,
+    batch_size: int,
+    device: str | None,
+    on_batch_progress: BatchProgressCallback | None = None,
+) -> PredictionResult:
     import onnxruntime as ort
     from transformers import AutoTokenizer
 
@@ -101,7 +129,9 @@ def predict_onnx(texts: list[str], resolved_dir: Path, batch_size: int, device: 
 
     onnx_model_path = str(resolved_dir / "model.onnx")
     if not Path(onnx_model_path).exists():
-        raise FileNotFoundError(f"Файл {onnx_model_path} не найден! Сначала сконвертируйте модель с помощью convert_to_onnx.py.")
+        raise FileNotFoundError(
+            f"Файл {onnx_model_path} не найден! Положите model.onnx в каталог fast_rubert/."
+        )
 
     session = ort.InferenceSession(onnx_model_path, providers=providers)
     active = session.get_providers()
@@ -115,28 +145,29 @@ def predict_onnx(texts: list[str], resolved_dir: Path, batch_size: int, device: 
 
     all_labels: list[int] = []
     all_conf: list[float] = []
+    batch_starts = list(range(0, len(texts), batch_size))
+    total_batches = len(batch_starts)
 
-    try:
-        from tqdm import tqdm
-        loop_iterable = tqdm(range(0, len(texts), batch_size), desc="Обработка батчей (ONNX)", unit="батч")
-    except ImportError:
-        loop_iterable = range(0, len(texts), batch_size)
+    if on_batch_progress is None:
+        try:
+            from tqdm import tqdm
+            loop_iterable = tqdm(batch_starts, desc="Обработка батчей (ONNX)", unit="батч")
+        except ImportError:
+            loop_iterable = batch_starts
+    else:
+        loop_iterable = batch_starts
 
-    for start in loop_iterable:
+    for batch_idx, start in enumerate(loop_iterable, start=1):
         batch = texts[start : start + batch_size]
         encoded = tokenizer(
             batch,
             truncation=True,
             padding=True,
             max_length=max_length,
-            return_tensors="np", # ONNX ожидает numpy массивы
+            return_tensors="np",
+            return_token_type_ids=True,
         )
-        
-        # Подготавливаем входы для ONNX
-        ort_inputs = {
-            session.get_inputs()[0].name: encoded["input_ids"],
-            session.get_inputs()[1].name: encoded["attention_mask"],
-        }
+        ort_inputs = _build_ort_inputs(session, encoded)
         
         # Инференс
         logits = session.run(None, ort_inputs)[0]
@@ -148,6 +179,8 @@ def predict_onnx(texts: list[str], resolved_dir: Path, batch_size: int, device: 
         batch_labels = np.argmax(probs, axis=1)
         all_labels.extend(batch_labels.tolist())
         all_conf.extend(probs[np.arange(len(batch_labels)), batch_labels].tolist())
+        if on_batch_progress is not None:
+            on_batch_progress(min(start + len(batch), len(texts)), len(texts))
 
     return _pack_result(np.array(all_labels, dtype=int), np.array(all_conf, dtype=float))
 
@@ -158,6 +191,7 @@ def run_inference(
     model_dir: str | Path | None = None,
     batch_size: int = 16,
     device: str | None = None,
+    on_batch_progress: BatchProgressCallback | None = None,
 ) -> PredictionResult:
     resolved_dir = resolve_model_dir(model_dir)
-    return predict_onnx(texts, resolved_dir, batch_size, device)
+    return predict_onnx(texts, resolved_dir, batch_size, device, on_batch_progress)

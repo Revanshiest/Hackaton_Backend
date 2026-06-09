@@ -11,14 +11,31 @@ from app.config.llm import OLLAMA_MODEL
 from app.config.paths import JOBS_DIR
 from app.config.settings import PipelineSettings
 from app.pipeline import run_pipeline
-from app.progress import PIPELINE_STEPS, initial_steps
+from app.progress import PIPELINE_STEPS, initial_steps, overall_progress
 from app.report import load_report_json
 from app.summary import build_district_report_summary
 from schemas import PipelineOptions
 
 _jobs: dict[str, dict] = {}
+_progress_persist_ts: dict[str, float] = {}
 
 _STALE_JOB_MESSAGE = "Прервано перезапуском сервера"
+_PROGRESS_PERSIST_INTERVAL_SEC = 0.75
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _finalize_step_timing(step: dict) -> None:
+    if step.get("ended_at"):
+        return
+    ended = datetime.now(timezone.utc)
+    step["ended_at"] = ended.isoformat()
+    started_at = step.get("started_at")
+    if started_at and step.get("duration_sec") is None:
+        started = datetime.fromisoformat(started_at)
+        step["duration_sec"] = round((ended - started).total_seconds(), 1)
 
 
 def job_path(task_id: str) -> Path:
@@ -79,15 +96,41 @@ def load_jobs_from_disk() -> None:
             continue
 
 
+def normalize_job_steps(job: dict) -> list[dict]:
+    """Всегда возвращает полный список шагов пайплайна (6 этапов)."""
+    existing = {step["id"]: step for step in (job.get("steps") or [])}
+    normalized: list[dict] = []
+    for step_id, label in PIPELINE_STEPS:
+        step = dict(existing.get(step_id, {}))
+        step.setdefault("id", step_id)
+        step.setdefault("label", label)
+        step.setdefault("status", "pending")
+        step.setdefault("detail", "")
+        normalized.append(step)
+    return normalized
+
+
 def get_job(task_id: str) -> dict | None:
-    return _jobs.get(task_id)
+    job = _jobs.get(task_id)
+    if job is None:
+        return None
+    job = dict(job)
+    job["steps"] = normalize_job_steps(job)
+    return job
 
 
 def list_jobs() -> list[dict]:
     return list(_jobs.values())
 
 
-def update_job_step(task_id: str, step_id: str, status: str, detail: str = "") -> None:
+def update_job_step(
+    task_id: str,
+    step_id: str,
+    status: str,
+    detail: str = "",
+    *,
+    step_fraction: float | None = None,
+) -> None:
     steps = _jobs[task_id].get("steps") or initial_steps()
     order = [s[0] for s in PIPELINE_STEPS]
     if status == "running" and step_id in order:
@@ -95,6 +138,8 @@ def update_job_step(task_id: str, step_id: str, status: str, detail: str = "") -
         for step in steps:
             if step["id"] in order[:idx] and step["status"] == "running":
                 step["status"] = "done"
+                step["progress"] = 100.0
+                _finalize_step_timing(step)
     for step in steps:
         if step["id"] == step_id:
             step["status"] = status
@@ -102,11 +147,31 @@ def update_job_step(task_id: str, step_id: str, status: str, detail: str = "") -
                 step["detail"] = detail
             elif status == "running" and not step.get("detail"):
                 step["detail"] = "выполняется…"
+            if status == "running" and not step.get("started_at"):
+                step["started_at"] = _now_iso()
+            if status in ("done", "error"):
+                step["progress"] = 100.0
+                _finalize_step_timing(step)
+            elif step_fraction is not None:
+                step["progress"] = round(max(0.0, min(100.0, step_fraction * 100)), 1)
             break
     _jobs[task_id]["steps"] = steps
+    if status == "done":
+        _jobs[task_id]["progress"] = overall_progress(step_id, step_done=True)
+    elif step_fraction is not None:
+        _jobs[task_id]["progress"] = round(
+            overall_progress(step_id, step_fraction=step_fraction),
+            1,
+        )
     if detail:
         _jobs[task_id]["message"] = detail
-    persist_job(task_id)
+
+    force_persist = status in ("done", "error") or step_fraction is None
+    now = time.perf_counter()
+    last = _progress_persist_ts.get(task_id, 0.0)
+    if force_persist or now - last >= _PROGRESS_PERSIST_INTERVAL_SEC:
+        _progress_persist_ts[task_id] = now
+        persist_job(task_id)
 
 
 def run_job(task_id: str, input_path: Path, options: PipelineOptions) -> None:
@@ -119,8 +184,13 @@ def run_job(task_id: str, input_path: Path, options: PipelineOptions) -> None:
 
     started = time.perf_counter()
 
-    def on_progress(step_id: str, status: str, detail: str = "") -> None:
-        update_job_step(task_id, step_id, status, detail)
+    def on_progress(
+        step_id: str,
+        status: str,
+        detail: str = "",
+        step_fraction: float | None = None,
+    ) -> None:
+        update_job_step(task_id, step_id, status, detail, step_fraction=step_fraction)
 
     try:
         cfg = PipelineSettings(
@@ -143,6 +213,7 @@ def run_job(task_id: str, input_path: Path, options: PipelineOptions) -> None:
             "report_file": result.report_path.name,
         }
         _jobs[task_id]["status"] = "completed"
+        _jobs[task_id]["progress"] = 100.0
         _jobs[task_id]["rows_processed"] = result.rows_processed
         _jobs[task_id]["stats"] = stats
         _jobs[task_id]["message"] = (
@@ -265,6 +336,7 @@ def create_job(task_id: str, filename: str) -> dict:
         "rows_processed": None,
         "stats": None,
         "steps": initial_steps(),
+        "progress": 0.0,
     }
     _jobs[task_id] = job
     job_path(task_id).mkdir(parents=True, exist_ok=True)

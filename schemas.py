@@ -18,7 +18,7 @@ class DistrictShortInfo(BaseModel):
     """Краткая информация по району (для карты и топа)"""
     district_id: int = Field(..., description="Уникальный идентификатор района", example=1)
     district_name: str = Field(..., description="Название района", example="Центральный АО")
-    score: int = Field(..., description="Скор района (от 0 до 100, чем выше, тем лучше)", example=87)
+    score: int = Field(..., description="Индекс проблемности (5–100, чем выше — тем больше проблем)", example=87)
     main_problem: str = Field(..., description="Главная проблема", example="ЖКХ")
     analytical_summary: Optional[str] = Field(None, description="Аналитический вывод по МО")
     center_coordinates: Optional[List[float]] = Field(None, description="Координаты центра района [широта, долгота]", example=[54.989347, 73.368221])
@@ -44,6 +44,10 @@ class DashboardResponse(BaseModel):
     map_data: List[DistrictShortInfo] = Field(..., description="Данные для карты")
     top_districts: List[DistrictShortInfo] = Field(..., description="Топ-10 районов по скору")
     critical_districts: List[CriticalDistrictCard] = Field(..., description="Карточки критических районов")
+    start_date: Optional[datetime] = Field(None, description="Начало периода обращений в датасете")
+    end_date: Optional[datetime] = Field(None, description="Конец периода обращений в датасете")
+    total_incidents: Optional[int] = Field(None, description="Всего обращений в выборке", example=15000)
+    problem_count: Optional[int] = Field(None, description="Проблемных обращений (severity > 0)", example=12000)
 
 
 # --- 3. Отчёт по району (уже существующий/быстрый) ---
@@ -96,6 +100,12 @@ class DistrictReportResponse(BaseModel):
     data: DistrictReport
 
 
+class RegionPdfRequest(BaseModel):
+    """Сводный PDF по нескольким муниципалитетам (demo / кастомная выборка)"""
+    districts: List[DistrictReport] = Field(..., description="Отчёты по МО")
+    executive_summary: str = Field("", description="Общая справка по региону")
+
+
 # --- 4. Создание подробного отчёта по запросу ---
 
 class GenerateReportRequest(BaseModel):
@@ -124,6 +134,10 @@ class PipelineStep(BaseModel):
     label: str = Field(..., description="Название шага", example="Классификация ONNX")
     status: str = Field(..., description="Статус: pending, running, done, error", example="running")
     detail: str = Field("", description="Детали выполнения")
+    progress: float | None = Field(None, description="Подпрогресс шага 0–100", example=42.0)
+    duration_sec: float | None = Field(None, description="Длительность шага в секундах", example=12.4)
+    started_at: str | None = Field(None, description="Время начала шага (ISO)")
+    ended_at: str | None = Field(None, description="Время окончания шага (ISO)")
 
 
 class JobStatus(BaseModel):
@@ -136,6 +150,7 @@ class JobStatus(BaseModel):
     rows_processed: int | None = Field(None, description="Обработано строк")
     stats: dict | None = Field(None, description="Статистика после завершения")
     steps: list[PipelineStep] | None = Field(None, description="Шаги пайплайна")
+    progress: float | None = Field(None, description="Общий прогресс пайплайна 0–100", example=35.5)
 
 
 class PipelineOptions(BaseModel):

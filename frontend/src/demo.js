@@ -13,3 +13,7 @@ export function getDemoMergedDashboard() {
 export function getDemoDistrictReport(districtId) {
   return demoSnapshot.district_reports[String(districtId)] ?? null
 }
+
+export function getAllDemoDistrictReports() {
+  return Object.values(demoSnapshot.district_reports).map((row) => row.data)
+}

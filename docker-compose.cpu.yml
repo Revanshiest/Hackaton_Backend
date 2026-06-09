@@ -1,0 +1,18 @@
+# CPU-режим: docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build
+#
+# Без NVIDIA GPU: убирает резервирование GPU и переключает ONNX на CPU.
+
+services:
+  ollama:
+    deploy: {}
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ""
+
+  api:
+    build:
+      args:
+        ONNX_VARIANT: cpu
+    deploy: {}
+    environment:
+      ONNX_DEVICE: cpu
+      NVIDIA_VISIBLE_DEVICES: ""

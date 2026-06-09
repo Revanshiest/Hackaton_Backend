@@ -1,0 +1,25 @@
+# Разработка API без пересборки при правках Python-кода:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d ollama ollama-pull api
+#
+# Зависимости (pip) остаются в образе; меняется только код через bind-mount.
+# Пересборка образа нужна только если менялись requirements*.txt или Dockerfile.
+
+services:
+  api:
+    build:
+      args:
+        ONNX_VARIANT: ${ONNX_VARIANT:-gpu}
+    volumes:
+      - ./app:/app/app
+      - ./pipeline:/app/pipeline
+      - ./src:/app/src
+      - ./schemas.py:/app/schemas.py
+      - ./training_utils.py:/app/training_utils.py
+    command:
+      - uvicorn
+      - src.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --reload

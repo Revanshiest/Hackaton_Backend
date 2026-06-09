@@ -6,6 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
+model_onnx/
+cache/
+dataset/
+fast_rubert/
+
 # Distribution / packaging
 .Python
 build/

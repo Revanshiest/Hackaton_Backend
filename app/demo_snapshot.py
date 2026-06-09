@@ -7,8 +7,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from app.progress import PIPELINE_STEPS
-from app.report import build_dashboard, build_district_report, build_severity_breakdown, load_report_json
+from app.report import (
+    build_dashboard,
+    build_district_report,
+    build_severity_breakdown,
+    enrich_report_period,
+    load_report_json,
+)
 from app.text_samples import sample_problem_texts
+
+EXAMPLES_PER_MUNI = 6
 
 STEP_DESCRIPTIONS: dict[str, str] = {
     "load": "Чтение обращений и муниципалитетов из Excel",
@@ -99,11 +107,13 @@ def build_demo_snapshot(
                     problems = labeled_df
                     if "severity" in labeled_df.columns:
                         problems = labeled_df.loc[labeled_df["severity"].fillna(0) > 0]
-                    examples = sample_problem_texts(problems, muni, n=5)
+                    examples = sample_problem_texts(problems, muni, n=EXAMPLES_PER_MUNI)
                     reason["примеры_обращений"] = examples
                     if examples and not reason.get("примеры_текстов"):
                         reason["примеры_текстов"] = " || ".join(e["text"] for e in examples)
+    enrich_report_period(report, report_file.parent.parent / "cache")
     dashboard = build_dashboard(report)
+    dash_dump = _dump_model(dashboard)
 
     district_reports: dict[str, dict] = {}
     for row in report.get("all", []):
@@ -116,8 +126,12 @@ def build_demo_snapshot(
         "meta": {
             "source_job": report_file.parent.parent.name,
             "generated_at": datetime.now(timezone.utc).isoformat(),
-            "rows_total": sum(int(r.get("total_incidents", 0)) for r in report.get("all", [])),
+            "rows_total": dash_dump.get("total_incidents")
+            or sum(int(r.get("total_incidents", 0)) for r in report.get("all", [])),
             "municipalities": len(report.get("all", [])),
+            "start_date": dash_dump.get("start_date"),
+            "end_date": dash_dump.get("end_date"),
+            "problem_count": dash_dump.get("problem_count"),
         },
         "pipeline_steps": [
             {
@@ -127,7 +141,7 @@ def build_demo_snapshot(
             }
             for step_id, label in PIPELINE_STEPS
         ],
-        "dashboard": _dump_model(dashboard),
+        "dashboard": dash_dump,
         "district_reports": district_reports,
     }
 

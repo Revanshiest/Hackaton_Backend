@@ -58,12 +58,17 @@ export default function ProgressScreen({ taskId, onDone, onReset }) {
               label: s.label,
               description: s.detail || '',
               status: s.status,
+              progress: s.progress ?? null,
             })),
           )
           const doneCount = apiSteps.filter((s) => s.status === 'done').length
           const runningIdx = apiSteps.findIndex((s) => s.status === 'running')
           setCurrentStep(runningIdx >= 0 ? runningIdx + 1 : doneCount)
-          setProgress(Math.min(100, Math.round((doneCount / apiSteps.length) * 100)))
+          const overall =
+            typeof job.progress === 'number'
+              ? job.progress
+              : (doneCount / apiSteps.length) * 100
+          setProgress(Math.min(100, Math.round(overall)))
         }
 
         if (job.status === 'completed') {
@@ -76,7 +81,7 @@ export default function ProgressScreen({ taskId, onDone, onReset }) {
           setError(job.message || 'Ошибка обработки')
           return
         }
-        setTimeout(poll, 1500)
+        setTimeout(poll, job.status === 'running' ? 600 : 1500)
       } catch (err) {
         if (!cancelled) setError(err.message || 'Не удалось получить статус')
       }
@@ -133,6 +138,7 @@ export default function ProgressScreen({ taskId, onDone, onReset }) {
                 const done = taskId ? step.status === 'done' : idx < currentStep
                 const active = taskId ? step.status === 'running' : idx === currentStep
                 const failed = step.status === 'error'
+                const subProgress = active && typeof step.progress === 'number' ? step.progress : null
                 return (
                   <div key={step.id} className="flex items-start gap-4 relative">
                     <div
@@ -158,6 +164,16 @@ export default function ProgressScreen({ taskId, onDone, onReset }) {
                       <p className="text-xs mt-0.5" style={{ color: active ? 'var(--text-2)' : 'var(--border)' }}>
                         {step.description || step.detail || ''}
                       </p>
+                      {subProgress != null && (
+                        <div className="mt-2 w-full max-w-[220px]">
+                          <div className="h-1 rounded-full overflow-hidden" style={{ background: 'var(--bg-sub)' }}>
+                            <div
+                              className="h-full bg-red-500 rounded-full transition-all duration-300"
+                              style={{ width: `${subProgress}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )

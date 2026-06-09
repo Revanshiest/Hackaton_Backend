@@ -4,6 +4,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import geojsonData from '../data/omsk_boundaries.json'
 import { matchDistrict, findCityMarkerDistrict } from '../utils/matchDistrict'
+import { scoreColor as scoreToColor } from '../utils/scoreColor'
 
 const BOUNDS = L.latLngBounds([[52.5, 68.0], [59.5, 78.0]])
 const MIN_ZOOM = 6.5
@@ -22,15 +23,6 @@ function MapConstraints() {
     return () => { map.off('zoom', clampZoom); map.off('zoomend', clampZoom) }
   }, [map])
   return null
-}
-
-const scoreToColor = (score) => {
-  if (score == null) return '#cbd5e1'
-  if (score >= 75) return '#22c55e'
-  if (score >= 60) return '#84cc16'
-  if (score >= 50) return '#f97316'
-  if (score >= 35) return '#ef4444'
-  return '#991b1b'
 }
 
 // Сопоставление OSM ↔ муниципалитет из API (см. utils/matchDistrict.js)

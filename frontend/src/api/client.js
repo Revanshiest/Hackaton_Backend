@@ -75,4 +75,72 @@ export const api = {
   excelTop10Url(taskId) {
     return `${BASE}/api/v1/jobs/${encodeURIComponent(taskId)}/excel/top10`
   },
+
+  districtPdfUrl(taskId, districtId) {
+    return `${BASE}/api/v1/districts/${districtId}/report.pdf?task_id=${encodeURIComponent(taskId)}`
+  },
+
+  parseContentDisposition(header) {
+    if (!header) return 'zeroproblems_report.pdf'
+    const utf8 = header.match(/filename\*=UTF-8''([^;]+)/i)
+    if (utf8?.[1]) {
+      try {
+        return decodeURIComponent(utf8[1])
+      } catch {
+        /* fall through */
+      }
+    }
+    const ascii = header.match(/filename="([^"]+)"/i)
+    return ascii?.[1] || 'zeroproblems_report.pdf'
+  },
+
+  async savePdfResponse(res) {
+    if (!res.ok) {
+      let detail = res.statusText
+      try {
+        const body = await res.json()
+        detail = body.detail ?? detail
+      } catch {
+        /* ignore */
+      }
+      throw new Error(detail || `HTTP ${res.status}`)
+    }
+    const blob = await res.blob()
+    const filename = api.parseContentDisposition(res.headers.get('content-disposition'))
+    const url = URL.createObjectURL(blob)
+    Object.assign(document.createElement('a'), { href: url, download: filename }).click()
+    URL.revokeObjectURL(url)
+  },
+
+  async downloadDistrictPdf(taskId, districtId) {
+    const res = await fetch(api.districtPdfUrl(taskId, districtId))
+    return api.savePdfResponse(res)
+  },
+
+  async downloadDistrictPdfFromData(reportData) {
+    const res = await fetch(`${BASE}/api/v1/reports/district/pdf`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(reportData),
+    })
+    return api.savePdfResponse(res)
+  },
+
+  regionPdfUrl(taskId) {
+    return `${BASE}/api/v1/jobs/${encodeURIComponent(taskId)}/report.pdf`
+  },
+
+  async downloadRegionPdf(taskId) {
+    const res = await fetch(api.regionPdfUrl(taskId))
+    return api.savePdfResponse(res)
+  },
+
+  async downloadRegionPdfFromData(districts, executiveSummary = '') {
+    const res = await fetch(`${BASE}/api/v1/reports/region/pdf`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ districts, executive_summary: executiveSummary }),
+    })
+    return api.savePdfResponse(res)
+  },
 }

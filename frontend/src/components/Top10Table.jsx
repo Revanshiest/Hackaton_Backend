@@ -1,39 +1,93 @@
-const scoreColor = (s) => s >= 75 ? '#22c55e' : s >= 60 ? '#84cc16' : s >= 50 ? '#f97316' : s >= 35 ? '#ef4444' : '#991b1b'
+import { ChevronRight } from 'lucide-react'
+import { scoreColor } from '../utils/scoreColor'
+
+const RANK_BADGE = {
+  bg: 'var(--bg-sub)',
+  color: 'var(--text-2)',
+  border: 'var(--border)',
+}
 
 export default function Top10Table({ districts, onDistrictClick }) {
+  if (!districts.length) {
+    return (
+      <p className="px-4 py-8 text-center text-sm" style={{ color: 'var(--muted)' }}>
+        Нет данных для рейтинга
+      </p>
+    )
+  }
+
   return (
-    <table className="w-full text-sm table-fixed">
-      <thead className="sticky top-0 z-10" style={{ background: 'var(--bg-card)' }}>
-        <tr style={{ borderBottom: '1px solid var(--border)' }}>
-          <th className="text-left px-4 py-2.5 text-xs font-semibold w-8" style={{ color: 'var(--muted)' }}>#</th>
-          <th className="text-left px-3 py-2.5 text-xs font-semibold" style={{ color: 'var(--muted)' }}>Район</th>
-          <th className="text-right px-3 py-2.5 text-xs font-semibold w-14" style={{ color: 'var(--muted)' }}>Скор</th>
-          <th className="text-left px-3 py-2.5 text-xs font-semibold w-24" style={{ color: 'var(--muted)' }}>Проблема</th>
-          <th className="text-left px-3 py-2.5 text-xs font-semibold" style={{ color: 'var(--muted)' }}>Вывод</th>
-        </tr>
-      </thead>
-      <tbody>
-        {districts.map((d, i) => (
-          <tr
+    <div>
+      {districts.map((d, i) => {
+        const color = scoreColor(d.score)
+        return (
+          <button
             key={d.id}
+            type="button"
             onClick={() => onDistrictClick(d)}
-            className="cursor-pointer transition-colors"
+            className="group w-full text-left px-4 py-3.5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500/30"
             style={{ borderBottom: '1px solid var(--border)' }}
-            onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-sub)'}
-            onMouseLeave={e => e.currentTarget.style.background = ''}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'var(--bg-sub)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = ''
+            }}
           >
-            <td className="px-4 py-3 text-xs font-medium" style={{ color: 'var(--muted)' }}>{i + 1}</td>
-            <td className="px-3 py-3 font-medium truncate" style={{ color: 'var(--text)' }}>{d.name}</td>
-            <td className="px-3 py-3 text-right">
-              <span className="font-bold tabular-nums text-sm" style={{ color: scoreColor(d.score) }}>{d.score}</span>
-            </td>
-            <td className="px-3 py-3 text-xs truncate" style={{ color: 'var(--muted)' }}>{d.topProblem}</td>
-            <td className="px-3 py-3 text-xs line-clamp-3 leading-relaxed" style={{ color: 'var(--text-2)' }} title={d.summary || ''}>
-              {d.summary || '—'}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+            <div className="flex items-start gap-3">
+              <span
+                className="flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold mt-0.5"
+                style={{
+                  background: RANK_BADGE.bg,
+                  color: RANK_BADGE.color,
+                  border: `1px solid ${RANK_BADGE.border}`,
+                }}
+              >
+                {i + 1}
+              </span>
+
+              <div className="min-w-0 flex-1">
+                <div className="flex items-start justify-between gap-3 mb-1.5">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm leading-snug" style={{ color: 'var(--text)' }}>
+                      {d.name}
+                    </p>
+                    {d.topProblem && d.topProblem !== '—' && (
+                      <p
+                        className="mt-1 text-xs leading-snug line-clamp-2"
+                        style={{ color: 'var(--text-2)' }}
+                        title={d.topProblem}
+                      >
+                        {d.topProblem}
+                      </p>
+                    )}
+                  </div>
+                  <span
+                    className="flex-shrink-0 inline-flex items-center justify-center min-w-[2.25rem] px-2 py-1 rounded-lg font-bold tabular-nums text-sm"
+                    style={{ background: `${color}18`, color }}
+                  >
+                    {d.score}
+                  </span>
+                </div>
+                {d.summary && (
+                  <p
+                    className="text-xs leading-relaxed line-clamp-3"
+                    style={{ color: 'var(--muted)' }}
+                    title={d.summary}
+                  >
+                    {d.summary}
+                  </p>
+                )}
+              </div>
+
+              <ChevronRight
+                className="w-4 h-4 flex-shrink-0 mt-1 opacity-0 group-hover:opacity-60 transition-opacity"
+                style={{ color: 'var(--muted)' }}
+              />
+            </div>
+          </button>
+        )
+      })}
+    </div>
   )
 }

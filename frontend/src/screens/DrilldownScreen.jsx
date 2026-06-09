@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import {
   ArrowLeft,
   Download,
+  FileType,
   Home,
   Route,
   Leaf,
@@ -14,9 +15,12 @@ import {
 } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import ThemeToggle from '../components/ThemeToggle'
+import TaskTimingPopover from '../components/TaskTimingPopover'
 import { api } from '../api/client'
 import { districtFromReport } from '../api/adapters'
-import { getDemoDistrictReport } from '../demo'
+import { demoMeta, getDemoDistrictReport } from '../demo'
+import { districtToReportPayload } from '../utils/districtReportPayload'
+import { scoreColor } from '../utils/scoreColor'
 
 const CATEGORY_ICONS = {
   ЖКХ: Home,
@@ -26,7 +30,6 @@ const CATEGORY_ICONS = {
   Освещение: Lightbulb,
   Благоустройство: TreeDeciduous,
 }
-const scoreColor = (s) => (s >= 75 ? '#22c55e' : s >= 60 ? '#84cc16' : s >= 50 ? '#f97316' : s >= 35 ? '#ef4444' : '#991b1b')
 
 const SEVERITY_COLORS = {
   0: '#94a3b8',
@@ -35,6 +38,8 @@ const SEVERITY_COLORS = {
   3: '#f97316',
   4: '#dc2626',
 }
+
+const EXAMPLES_DISPLAY_LIMIT = 7
 
 const formatAppealText = (text) =>
   String(text)
@@ -57,7 +62,7 @@ const SeverityTooltip = ({ active, payload }) => {
   )
 }
 
-function splitCategoryLabel(text, maxChars = 34) {
+function splitCategoryLabel(text, maxChars = 40) {
   const value = String(text || '').trim()
   if (value.length <= maxChars) return [value]
   const words = value.split(/\s+/)
@@ -91,10 +96,10 @@ function CategoryYAxisTick({ x, y, payload }) {
           key={i}
           x={0}
           y={0}
-          dy={i * 11 + (lines.length === 1 ? 4 : -2)}
+          dy={i * 13 + (lines.length === 1 ? 4 : -2)}
           textAnchor="end"
           fill="var(--text-2)"
-          fontSize={10}
+          fontSize={12}
         >
           {line}
         </text>
@@ -103,7 +108,7 @@ function CategoryYAxisTick({ x, y, payload }) {
   )
 }
 
-const chartBarHeight = (count) => Math.max(220, count * 46 + 32)
+const chartBarHeight = (count) => Math.max(240, count * 52 + 36)
 
 const CustomTooltip = ({ active, payload }) => {
   if (!active || !payload?.length) return null
@@ -121,6 +126,7 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
   const [district, setDistrict] = useState(initialDistrict)
   const [loading, setLoading] = useState(!!taskId)
   const [generating, setGenerating] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
 
   useEffect(() => {
     setDistrict(initialDistrict)
@@ -158,9 +164,27 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
   const color = scoreColor(district.score)
   const max = district.problems[0]?.count || 1
 
+  const handlePdfExport = async () => {
+    if (exportingPdf) return
+    setExportingPdf(true)
+    try {
+      if (taskId && !isDemo) {
+        await api.downloadDistrictPdf(taskId, district.id)
+      } else {
+        await api.downloadDistrictPdfFromData(districtToReportPayload(district))
+      }
+    } catch (err) {
+      console.error(err)
+      alert(err.message || 'Не удалось сформировать PDF.')
+    } finally {
+      setExportingPdf(false)
+    }
+  }
+
   const handleDownload = () => {
-    if (taskId) {
-      window.open(api.excelTop10Url(taskId), '_blank')
+    const excelJobId = taskId || (isDemo ? demoMeta.source_job : null)
+    if (excelJobId) {
+      window.open(api.excelTop10Url(excelJobId), '_blank')
       return
     }
     const lines = [
@@ -238,11 +262,12 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
         <div className="w-px h-5" style={{ background: 'var(--border)' }} />
         <h1 className="font-bold" style={{ color: 'var(--text)' }}>{district.name}</h1>
         <span
-          className="text-xs font-bold px-2 py-0.5 rounded-full"
+          className="text-sm font-bold px-2.5 py-0.5 rounded-full"
           style={{ color, background: `${color}18` }}
         >
           Скор {district.score}
         </span>
+        <TaskTimingPopover taskId={taskId} isDemo={isDemo} sourceJob={isDemo ? demoMeta.source_job : null} />
         <div className="ml-auto flex items-center gap-2">
           {taskId && (
             <button
@@ -252,37 +277,69 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
               style={{ background: '#dc2626', color: '#fff', border: '1px solid #b91c1c', opacity: generating ? 0.6 : 0.9 }}
             >
               <FileSearch className="w-3.5 h-3.5" />
-              {generating ? 'Генерация…' : 'Полный отчёт'}
+              {generating ? 'Генерация…' : 'Сгенерировать сводку'}
             </button>
           )}
+          <button
+            onClick={handlePdfExport}
+            disabled={exportingPdf}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all"
+            style={{
+              border: '1px solid #b91c1c',
+              background: '#dc2626',
+              color: '#fff',
+              opacity: exportingPdf ? 0.6 : 1,
+            }}
+          >
+            <FileType className="w-3.5 h-3.5" />
+            {exportingPdf ? 'PDF…' : 'Скачать PDF'}
+          </button>
           <button
             onClick={handleDownload}
             className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
             style={{ border: '1px solid var(--border)', background: 'var(--bg-card)', color: 'var(--text-2)' }}
           >
-            <Download className="w-3.5 h-3.5" /> {taskId && !isDemo ? 'Excel Top-10' : 'Скачать TXT'}
+            <Download className="w-3.5 h-3.5" /> {(taskId || (isDemo && demoMeta.source_job)) ? 'Excel Top-10' : 'TXT'}
           </button>
           <ThemeToggle dark={dark} onToggle={onToggleTheme} />
         </div>
       </header>
 
+      {district.summary && (
+        <div
+          className="mx-4 lg:mx-5 mt-4 p-5 rounded-2xl flex gap-4 anim-up"
+          style={{
+            background: dark ? 'rgba(234,88,12,0.12)' : '#fff7ed',
+            border: '2px solid rgba(234,88,12,0.4)',
+          }}
+        >
+          <BotMessageSquare className="w-6 h-6 text-orange-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-bold text-orange-500 uppercase tracking-widest mb-2">Аналитическая сводка</p>
+            <p className="text-base leading-relaxed font-medium" style={{ color: dark ? '#fed7aa' : '#9a3412' }}>
+              {district.summary}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 p-4 lg:p-5 grid grid-cols-1 lg:grid-cols-2 gap-4 anim-up">
         <div className="space-y-4">
           <div className="p-5 shadow-sm" style={card}>
-            <h2 className="text-sm font-semibold mb-5" style={{ color: 'var(--text)' }}>Обращения по категориям</h2>
+            <h2 className="text-base font-semibold mb-5" style={{ color: 'var(--text)' }}>Обращения по категориям</h2>
             {district.problems.length ? (
               <ResponsiveContainer width="100%" height={chartBarHeight(district.problems.length)}>
                 <BarChart
                   data={district.problems}
                   layout="vertical"
-                  barSize={14}
+                  barSize={16}
                   margin={{ top: 4, right: 12, left: 4, bottom: 4 }}
                 >
-                  <XAxis type="number" tick={{ fill: 'var(--muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <XAxis type="number" tick={{ fill: 'var(--muted)', fontSize: 12 }} axisLine={false} tickLine={false} />
                   <YAxis
                     dataKey="category"
                     type="category"
-                    width={210}
+                    width={240}
                     tick={<CategoryYAxisTick />}
                     interval={0}
                     axisLine={false}
@@ -303,21 +360,21 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
 
           {district.problems.length > 0 && (
             <div className="p-5 shadow-sm" style={card}>
-              <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--text)' }}>Доли категорий</h2>
-              <div className="space-y-3.5">
+              <h2 className="text-base font-semibold mb-4" style={{ color: 'var(--text)' }}>Доли категорий</h2>
+              <div className="space-y-4">
                 {district.problems.map((p, i) => {
                   const Icon = CATEGORY_ICONS[p.category] || Home
                   return (
                     <div key={p.category} className="flex items-center gap-3">
-                      <Icon className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--muted)' }} />
+                      <Icon className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--muted)' }} />
                       <div className="flex-1">
-                        <div className="flex justify-between text-xs mb-1.5 gap-2">
+                        <div className="flex justify-between text-sm mb-2 gap-3">
                           <span className="font-medium leading-snug" style={{ color: 'var(--text-2)' }}>{p.category}</span>
-                          <span style={{ color: 'var(--muted)' }}>
+                          <span className="text-sm flex-shrink-0" style={{ color: 'var(--muted)' }}>
                             {p.count} · {Math.round((p.count / total) * 100)}%
                           </span>
                         </div>
-                        <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-sub)' }}>
+                        <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-sub)' }}>
                           <div
                             className="h-full rounded-full transition-all duration-700"
                             style={{
@@ -338,8 +395,13 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
         <div className="space-y-4">
           <div className="p-5 shadow-sm" style={card}>
             <h2 className="text-sm font-semibold mb-4" style={{ color: 'var(--text)' }}>Примеры обращений</h2>
-            <div className="space-y-3">
-              {(district.examples.length ? district.examples : [{ text: 'Нет примеров', severity: 0, label: '' }]).map((item, i) => {
+            <div
+              className="space-y-3 overflow-y-auto pr-1"
+              style={{ maxHeight: 'min(42vh, 380px)' }}
+            >
+              {(district.examples.length ? district.examples : [{ text: 'Нет примеров', severity: 0, label: '' }])
+                .slice(0, EXAMPLES_DISPLAY_LIMIT)
+                .map((item, i) => {
                 const text = formatAppealText(typeof item === 'string' ? item : item.text)
                 const severity = typeof item === 'string' ? 1 : item.severity
                 const label = typeof item === 'string' ? '' : item.label
@@ -426,24 +488,6 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
           )}
         </div>
       </div>
-
-      {district.summary && (!taskId || isDemo || !loading) && (
-        <div
-          className="mx-4 lg:mx-5 mb-5 p-5 rounded-2xl flex gap-4 anim-up"
-          style={{
-            background: dark ? 'rgba(234,88,12,0.12)' : '#fff7ed',
-            border: '2px solid rgba(234,88,12,0.4)',
-          }}
-        >
-          <BotMessageSquare className="w-6 h-6 text-orange-500 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-xs font-bold text-orange-500 uppercase tracking-widest mb-2">Аналитическая сводка</p>
-            <p className="text-base leading-relaxed font-medium" style={{ color: dark ? '#fed7aa' : '#9a3412' }}>
-              {district.summary}
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

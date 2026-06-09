@@ -1,4 +1,4 @@
-"""Агрегация и ранжирование муниципалитетов по индексу благополучия (Health Score)."""
+"""Агрегация и ранжирование муниципалитетов по индексу проблемности."""
 
 from __future__ import annotations
 
@@ -32,15 +32,15 @@ def _rating_score(labels: list[int]) -> float:
 
 
 def _health_score(rating_score: float, max_rating: float) -> int:
-    """100 — нет проблем, 5 — критично (худший район в срезе).
+    """Индекс проблемности: 5 — минимум проблем, 100 — максимум в срезе.
 
     Логарифмическая нормализация: один крупный центр (напр. Омск г.о.)
-    не сжимает все остальные муниципалитеты в диапазон 96–99.
+    не сжимает остальные муниципалитеты в узкий диапазон.
     """
     if max_rating <= 0 or rating_score <= 0:
-        return 100
+        return 5
     ratio = min(1.0, np.log1p(rating_score) / np.log1p(max_rating))
-    return max(5, int(100 - ratio * 95))
+    return min(100, max(5, int(5 + ratio * 95)))
 
 
 def calculate_districts_health(
@@ -49,10 +49,9 @@ def calculate_districts_health(
     pred_col: str = "severity",
 ) -> pd.DataFrame:
     """
-    Рассчитывает индекс благополучия (Health Score) для всех районов.
-    100 — идеальное состояние, 5 — критическая ситуация (ЧС).
+    Рассчитывает индекс проблемности для всех районов.
+    5 — минимум проблем, 100 — худшая ситуация в срезе.
     Штраф нормируется на log(1 + N), чтобы крупные районы не доминировали только объёмом.
-    Итоговый health_score переводится в шкалу 5–100 через log(1 + rating).
     """
     if district_col not in df.columns:
         raise ValueError(f"Колонка {district_col!r} не найдена")
@@ -90,7 +89,7 @@ def calculate_districts_health(
         return pd.DataFrame()
 
     result = pd.DataFrame(reports)
-    result = result.sort_values("health_score", ascending=True).reset_index(drop=True)
+    result = result.sort_values("health_score", ascending=False).reset_index(drop=True)
     result["rank"] = range(1, len(result) + 1)
     result["district_id"] = result["rank"]
     result["score"] = result["health_score"]

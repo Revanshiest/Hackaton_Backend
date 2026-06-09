@@ -77,5 +77,13 @@ export function mergeDashboard(dashboard) {
   const top10 = (dashboard.top_districts || []).map((row) => byId.get(row.district_id)).filter(Boolean)
   const critical = (dashboard.critical_districts || []).map((row) => byId.get(row.district_id)).filter(Boolean)
 
-  return { districts, top10, critical }
+  return {
+    districts,
+    top10,
+    critical,
+    startDate: dashboard.start_date ?? null,
+    endDate: dashboard.end_date ?? null,
+    totalIncidents: dashboard.total_incidents ?? null,
+    problemCount: dashboard.problem_count ?? null,
+  }
 }
