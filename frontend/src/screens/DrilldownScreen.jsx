@@ -62,6 +62,48 @@ const SeverityTooltip = ({ active, payload }) => {
 }
 
 const LEFT_CARD_CHROME = 84
+const COMPACT_CATEGORIES_MAX = 8
+
+function SeverityChartCard({ severityStat, cardStyle }) {
+  if (!severityStat?.length) return null
+
+  return (
+    <div className="p-5 shadow-sm flex-shrink-0" style={cardStyle}>
+      <h2 className="text-sm font-semibold mb-1" style={{ color: 'var(--text)' }}>
+        Распределение по тяжести
+      </h2>
+      <p className="text-xs mb-4" style={{ color: 'var(--muted)' }}>
+        Классы ONNX: 0 — не инцидент … 4 — критическая
+      </p>
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart data={severityStat} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+          <XAxis
+            dataKey="label"
+            tick={{ fill: 'var(--muted)', fontSize: 10 }}
+            axisLine={false}
+            tickLine={false}
+            interval={0}
+            angle={-12}
+            textAnchor="end"
+            height={48}
+          />
+          <YAxis
+            allowDecimals={false}
+            tick={{ fill: 'var(--muted)', fontSize: 11 }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <Tooltip content={<SeverityTooltip />} cursor={{ fill: 'var(--bg-sub)' }} />
+          <Bar dataKey="count" radius={[6, 6, 0, 0]} maxBarSize={48}>
+            {severityStat.map((row) => (
+              <Cell key={row.severity} fill={SEVERITY_COLORS[row.severity] ?? '#94a3b8'} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  )
+}
 
 export default function DrilldownScreen({ district: initialDistrict, taskId, isDemo, onBack, dark, onToggleTheme }) {
   const [district, setDistrict] = useState(initialDistrict)
@@ -148,12 +190,17 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
     ? 'max-h-[min(calc(100vh-19rem),720px)]'
     : 'max-h-[min(calc(100vh-12rem),780px)]'
   const categoriesNaturalHeight = LEFT_CARD_CHROME + listContentHeight
-  const categoriesAlignHeight = rightColHeight
+  const categoriesOverflows = Boolean(rightColHeight && categoriesNaturalHeight > rightColHeight)
+  const compactLayout = Boolean(
+    district.severityStat?.length > 0
+    && district.problems.length > 0
+    && district.problems.length <= COMPACT_CATEGORIES_MAX
+    && !categoriesOverflows,
+  )
+  const categoriesScrollInside = categoriesOverflows && !compactLayout
+  const categoriesAlignHeight = !compactLayout && rightColHeight
     ? Math.min(rightColHeight, categoriesNaturalHeight)
     : null
-  const categoriesScrollInside = Boolean(
-    rightColHeight && categoriesNaturalHeight > rightColHeight,
-  )
 
   const handlePdfExport = async () => {
     if (exportingPdf) return
@@ -317,9 +364,9 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
       )}
 
       <div className="flex-1 p-3 sm:p-4 lg:p-5 grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 anim-up lg:items-start">
-        <div className="min-h-0">
+        <div className="min-h-0 flex flex-col gap-4">
           <div
-            className="p-5 shadow-sm flex flex-col min-h-0"
+            className="p-5 shadow-sm flex flex-col min-h-0 flex-shrink-0"
             style={{
               ...card,
               ...(categoriesAlignHeight
@@ -371,6 +418,10 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
               <p className="text-sm" style={{ color: 'var(--muted)' }}>Нет данных по категориям</p>
             )}
           </div>
+
+          {compactLayout && (
+            <SeverityChartCard severityStat={district.severityStat} cardStyle={card} />
+          )}
         </div>
 
         <div ref={rightColRef} className="space-y-4">
@@ -430,41 +481,8 @@ export default function DrilldownScreen({ district: initialDistrict, taskId, isD
             ))}
           </div>
 
-          {(district.severityStat?.length > 0) && (
-            <div className="p-5 shadow-sm" style={card}>
-              <h2 className="text-sm font-semibold mb-1" style={{ color: 'var(--text)' }}>
-                Распределение по тяжести
-              </h2>
-              <p className="text-xs mb-4" style={{ color: 'var(--muted)' }}>
-                Классы ONNX: 0 — не инцидент … 4 — критическая
-              </p>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={district.severityStat} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fill: 'var(--muted)', fontSize: 10 }}
-                    axisLine={false}
-                    tickLine={false}
-                    interval={0}
-                    angle={-12}
-                    textAnchor="end"
-                    height={48}
-                  />
-                  <YAxis
-                    allowDecimals={false}
-                    tick={{ fill: 'var(--muted)', fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <Tooltip content={<SeverityTooltip />} cursor={{ fill: 'var(--bg-sub)' }} />
-                  <Bar dataKey="count" radius={[6, 6, 0, 0]} maxBarSize={48}>
-                    {district.severityStat.map((row) => (
-                      <Cell key={row.severity} fill={SEVERITY_COLORS[row.severity] ?? '#94a3b8'} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+          {!compactLayout && (
+            <SeverityChartCard severityStat={district.severityStat} cardStyle={card} />
           )}
         </div>
       </div>
